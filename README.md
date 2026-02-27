@@ -14,8 +14,9 @@ EmbATlink采用分层解耦设计，抽象底层硬件接口，适配任意MCU�
 [高通用性的AT指令驱动框架](https://www.yuque.com/u54102073/rs06a5/lgcn1lumuhqfvcgg?singleDoc#)
 
 ## 相关链接
-- 源码仓库：[GitHub - ZeroOneLab/EmbATlink](https://github.com/ZeroOneLab/EmbATlink.git)
-- 移植教程：[语雀文档](https://www.yuque.com/u54102073/rs06a5/lgcn1lumuhqfvcgg?singleDoc#)
+- 源码仓库（GitHub）：[ZeroOneLab/EmbATlink](https://github.com/ZeroOneLab/EmbATlink.git)
+- 源码仓库（Gitee）：[零壹实验室-ZeroOneLab/EmbATlink](https://gitee.com/Wang2869902214/EmbATlink.git)
+- 移植文档：[语雀 - EmbATlink：高通用性的AT指令驱动框架](https://www.yuque.com/u54102073/rs06a5/lgcn1lumuhqfvcgg?singleDoc#)
 
 ## 许可证
 Copyright (c) 2026 零壹实验室-ZoreOneLab
