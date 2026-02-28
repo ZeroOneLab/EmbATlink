@@ -1,10 +1,6 @@
 # EmbATlink
 
-![Image](https://p9-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/online_import/05e53c13acbc4549a5dd17d6841c6312~tplv-noop.jpeg?rk3s=49177a0b&x-expires=1772245517&x-signature=tmIZc%2BTVYHm%2FPAkHosflgirmY%2Fo%3D&resource_key=7053ea1f-32c0-4cda-aedb-68f744661b00&resource_key=7053ea1f-32c0-4cda-aedb-68f744661b00)
-
-![Image](https://p9-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/online_import/9a6cfbc80b4444ac809c5b16b0d45127~tplv-noop.jpeg?rk3s=49177a0b&x-expires=1772245517&x-signature=kQHHkYTNpCsf7H5ZjoNCQQ93EAs%3D&resource_key=10bda3d3-347b-4bb4-8119-1a0389894db0&resource_key=10bda3d3-347b-4bb4-8119-1a0389894db0)
-
-![Image](https://p9-flow-imagex-sign.byteimg.com/tos-cn-i-a9rns2rl98/rc/online_import/bbac07da52a14ae88dfb95ab5553f1c4~tplv-noop.jpeg?rk3s=49177a0b&x-expires=1772245517&x-signature=%2FHXEtBjeTdQd1ull6Kkak89JD%2B8%3D&resource_key=c9e81d62-fd79-4f1c-85e9-f25eba8b6078&resource_key=c9e81d62-fd79-4f1c-85e9-f25eba8b6078)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 一款**高通用性、分层解耦**的AT指令驱动框架，专为嵌入式MCU设计，解决物联网开发中多模组AT指令代码冗余、跨平台移植困难、多路设备并行通信难等问题，支持主动指令发送+被动事件监听，适配STM32等主流MCU平台，裸机/RTOS环境均兼容。
 
