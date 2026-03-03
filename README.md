@@ -229,7 +229,7 @@ int main(void)
 }
 ```
 
-1. **串口接收回调对接**：将硬件串口的接收回调指向驱动的接收处理函数，以STM32中断接收为例：
+1. **普通串口中断接收回调对接**：将硬件串口的接收回调指向驱动的接收处理函数，以STM32中断接收为例：
 
 ```C
 
@@ -245,6 +245,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   }
 }
 ```
+
+2. **DMA空闲串口中断接收回调对接**：将硬件串口的接收回调指向驱动的接收处理函数
+同样方式调用：`at_uart_recv_handler(0, at_rx_data[0], N);`N：代表N个字节
+但是需要在`at_port.c`文件中，修改二维数组的长度：`uint8_t at_rx_data[AT_LUN_MAX][M];`M:代表最大接收长度。
 
 ## 📚 核心API
 
