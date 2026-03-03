@@ -32,21 +32,22 @@
 
 #include "main.h"
 #include "usart.h"
-
+// clang-format off
 /* AT指令表 */
 const at_cmd_config_t at_cmd_table[AT_CMD_LAST] = {
-    [AT_CMD_DEFAULT] = {"AT_CMD_DEFAULT", NULL, 0, 0, 0},      // 默认指令
-    [AT] = {"AT", "OK", 100, 20, 200},
-    [ATE] = {"ATE", NULL, 1, 20, 2000}, // 第二个参数为NULL表示 无需判断内容，超时后自动返回数据
+    [AT_CMD_DEFAULT]    = {"AT_CMD_DEFAULT",    NULL,   0,      0,      0},/*[保留]第二参数为NULL表示无需判断内容 超时后自动返回数据*/
+    [AT]                = {"AT",                "OK",   100,    20,     200},
+    [ATE]               = {"ATE",               NULL,   1,      20,     2000}, 
 };
 
 /* AT监听指令表 */
 const char *at_monitor_key_table[AT_MONITOR_LAST] = {
-    [AT_MONITOR_DEFAULT] = "AT_MONITOR_DEFAULT",     // 默认指令
-    [SYS_LED0_OFF] = "AT+LED0=0",
-    [SYS_LED0_ON] = "AT+LED0=1",
-    [SYS_LED0_TOGGLE] = "AT+LED0=2",
+    [AT_MONITOR_DEFAULT]    =   "AT_MONITOR_DEFAULT",     // 默认指令[保留]
+    [SYS_LED0_OFF]          =   "AT+LED0=0",
+    [SYS_LED0_ON]           =   "AT+LED0=1",
+    [SYS_LED0_TOGGLE]       =   "AT+LED0=2",
 };
+// clang-format on
 
 /* AT接收数据缓存 */
 uint8_t at_rx_data[AT_LUN_MAX][1];
