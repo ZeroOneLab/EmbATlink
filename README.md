@@ -109,10 +109,10 @@ void at_port_uart_transmit(uint8_t lun, const char *buf, uint16_t len)
 {
     switch (lun)
     {
-    case AT_LUN_SYS: // 0号AT设备：系统串口对接Wi-Fi模组
+    case 0: // 0号AT设备：系统串口对接Wi-Fi模组
         HAL_UART_Transmit(&huart1, (uint8_t *)buf, len, 0x100);
         break;
-    case AT_LUN_USER: // 1号AT设备：用户串口对接4G模组
+    case 1: // 1号AT设备：用户串口对接4G模组
         HAL_UART_Transmit(&huart2, (uint8_t *)buf, len, 0x100);
         break;
     default:
@@ -239,9 +239,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
   if (huart->Instance == USART1)
   {
     // 驱动接收核心入口：传递LUN、接收数据、长度
-    at_uart_recv_handler(AT_LUN_SYS, at_rx_data[AT_LUN_SYS], 1);
+    at_uart_recv_handler(0, at_rx_data[0], 1);
     // 重新开启串口中断接收
-    HAL_UART_Receive_IT(&huart1, at_rx_data[AT_LUN_SYS], 1);
+    HAL_UART_Receive_IT(&huart1, at_rx_data[0], 1);
   }
 }
 ```
