@@ -33,12 +33,11 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define AT_LUN_SYS 0  /* 系统串口 */
-#define AT_LUN_USER 1 /* 用户串口 */
-
 #define AT_LUN_MAX 1            /* AT设备逻辑单元号最大值 */
+
 #define AT_RECV_BUFFER_SIZE 512 /* 接收缓冲区大小 */
 #define AT_SEND_BUFFER_SIZE 512 /* 发送缓冲区大小 */
+
 #define AT_LOG_I(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #define AT_LOG_E(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #define AT_LOG_W(fmt, ...) printf(fmt, ##__VA_ARGS__)

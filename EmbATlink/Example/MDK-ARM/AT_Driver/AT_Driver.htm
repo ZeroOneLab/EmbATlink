@@ -3,7 +3,7 @@
 <title>Static Call Graph - [AT_Driver\AT_Driver.axf]</title></head>
 <body><HR>
 <H1>Static Call Graph for image AT_Driver\AT_Driver.axf</H1><HR>
-<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060960: Last Updated: Thu Feb 26 16:07:57 2026
+<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060960: Last Updated: Tue Mar 03 10:17:36 2026
 <BR><P>
 <H3>Maximum Stack Usage =        184 bytes + Unknown(Cycles, Untraceable Function Pointers)</H3><H3>
 Call chain for Maximum Stack Depth:</H3>
@@ -914,8 +914,7 @@ Global Symbols
 <P><STRONG><a name="[46]"></a>main</STRONG> (Thumb, 192 bytes, Stack size 16 bytes, main.o(i.main))
 <BR><BR>[Stack]<UL><LI>Max Depth = 184<LI>Call Chain = main &rArr; at_cmd_format_send_and_recv &rArr; at_cmd_send_and_wait &rArr; at_port_uart_transmit &rArr; HAL_UART_Transmit &rArr; UART_WaitOnFlagUntilTimeout
 </UL>
-<BR>[Calls]<UL><LI><a href="#[9a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__2printf
-<LI><a href="#[9c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;at_init
+<BR>[Calls]<UL><LI><a href="#[9c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;at_init
 <LI><a href="#[a0]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;at_get_recv_buffer
 <LI><a href="#[9f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;at_get_monitor_match_index
 <LI><a href="#[90]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;at_cmd_format_send_and_recv
@@ -927,6 +926,7 @@ Global Symbols
 <LI><a href="#[a1]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_TogglePin
 <LI><a href="#[5e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay
 <LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;SystemClock_Config
+<LI><a href="#[9a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__2printf
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> entry9a.o(.ARM.Collect$$$$0000000B)
 </UL><P>
@@ -983,8 +983,8 @@ Local Symbols
 <P><STRONG><a name="[94]"></a>at_cmd_send_and_wait</STRONG> (Thumb, 246 bytes, Stack size 56 bytes, at_driver.o(i.at_cmd_send_and_wait))
 <BR><BR>[Stack]<UL><LI>Max Depth = 120<LI>Call Chain = at_cmd_send_and_wait &rArr; at_port_uart_transmit &rArr; HAL_UART_Transmit &rArr; UART_WaitOnFlagUntilTimeout
 </UL>
-<BR>[Calls]<UL><LI><a href="#[9a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__2printf
-<LI><a href="#[8f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;at_clear_recv_buffer
+<BR>[Calls]<UL><LI><a href="#[8f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;at_clear_recv_buffer
+<LI><a href="#[9a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__2printf
 <LI><a href="#[92]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;strlen
 <LI><a href="#[99]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;strstr
 <LI><a href="#[96]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;at_port_uart_transmit

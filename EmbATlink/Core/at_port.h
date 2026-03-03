@@ -33,12 +33,11 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define AT_LUN_SYS 0  /* 系统串口 */
-#define AT_LUN_USER 1 /* 用户串口 */
-
 #define AT_LUN_MAX 1            /* AT设备逻辑单元号最大值 */
+
 #define AT_RECV_BUFFER_SIZE 512 /* 接收缓冲区大小 */
 #define AT_SEND_BUFFER_SIZE 512 /* 发送缓冲区大小 */
+
 #define AT_LOG_I(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #define AT_LOG_E(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #define AT_LOG_W(fmt, ...) printf(fmt, ##__VA_ARGS__)
@@ -47,14 +46,14 @@ typedef enum
 {
     AT_CMD_DEFAULT = 0x00, /* 默认指令(保留放在前后) */
     /* 用户自己定义AT指令 */
-    AT_CMD_LAST,           /* AT指令数量(保留放在最后) */
+    AT_CMD_LAST, /* AT指令数量(保留放在最后) */
 } at_cmd_id_e;
 
 typedef enum
 {
     AT_MONITOR_DEFAULT = 0x00, /* 默认监控指令(保留放在前后) */
     /* 用户自己定义AT指令 */
-    AT_MONITOR_LAST,           /* AT监控指令数量(保留放在最后) */
+    AT_MONITOR_LAST, /* AT监控指令数量(保留放在最后) */
 } at_monitor_key_e;
 
 extern uint8_t at_rx_data[AT_LUN_MAX][1];
@@ -81,6 +80,15 @@ uint32_t at_port_get_tick_ms(void);
 void at_port_init(uint8_t lun);
 
 /**
+ * @brief AT串口发送数据
+ * @param lun: 串口编号
+ * @param buf: 发送数据缓冲区
+ * @param len: 发送数据长度
+ * @retval 无
+ */
+void at_port_uart_transmit(uint8_t lun, const char *buf, uint16_t len);
+
+/**
  * @brief 进入临界区
  * @param lun: 串口编号
  * @retval 无
@@ -93,14 +101,5 @@ void at_port_enter_critical(uint8_t lun);
  * @retval 无
  */
 void at_port_exit_critical(uint8_t lun);
-
-/**
- * @brief AT串口发送数据
- * @param lun: 串口编号
- * @param buf: 发送数据缓冲区
- * @param len: 发送数据长度
- * @retval 无
- */
-void at_port_uart_transmit(uint8_t lun, const char *buf, uint16_t len);
 
 #endif

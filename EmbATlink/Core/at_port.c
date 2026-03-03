@@ -35,12 +35,12 @@
 
 /* AT指令表 */
 const at_cmd_config_t at_cmd_table[AT_CMD_LAST] = {
-    [AT_CMD_DEFAULT] = {"AT_CMD_DEFAULT", NULL, 0, 0, 0},      // 默认指令
+    [AT_CMD_DEFAULT] = {"AT_CMD_DEFAULT", NULL, 0, 0, 0}, // 默认指令
 };
 
 /* AT监听指令表 */
 const char *at_monitor_key_table[AT_MONITOR_LAST] = {
-    [AT_MONITOR_DEFAULT] = "AT_MONITOR_DEFAULT",     // 默认指令
+    [AT_MONITOR_DEFAULT] = "AT_MONITOR_DEFAULT", // 默认指令
 };
 
 /* AT接收数据缓存 */
@@ -53,7 +53,6 @@ uint8_t at_rx_data[AT_LUN_MAX][1];
  */
 void at_port_delay_ms(uint32_t xms)
 {
-
 }
 
 /**
@@ -63,7 +62,7 @@ void at_port_delay_ms(uint32_t xms)
  */
 uint32_t at_port_get_tick_ms(void)
 {
-
+    return 0;
 }
 
 /**
@@ -75,47 +74,9 @@ void at_port_init(uint8_t lun)
 {
     switch (lun)
     {
-    case AT_LUN_SYS:
+    case 0:
         break;
-    case AT_LUN_USER:
-        break;
-
-    default:
-        break;
-    }
-}
-
-/**
- * @brief 进入临界区
- * @param lun: 串口编号
- * @retval 无
- */
-void at_port_enter_critical(uint8_t lun)
-{
-    switch (lun)
-    {
-    case AT_LUN_SYS:
-        break;
-    case AT_LUN_USER:
-        break;
-
-    default:
-        break;
-    }
-}
-
-/**
- * @brief 退出临界区
- * @param lun: 串口编号
- * @retval 无
- */
-void at_port_exit_critical(uint8_t lun)
-{
-    switch (lun)
-    {
-    case AT_LUN_SYS:
-        break;
-    case AT_LUN_USER:
+    case 1:
         break;
 
     default:
@@ -134,9 +95,47 @@ void at_port_uart_transmit(uint8_t lun, const char *buf, uint16_t len)
 {
     switch (lun)
     {
-    case AT_LUN_SYS:
+    case 0:
         break;
-    case AT_LUN_USER:
+    case 1:
+        break;
+
+    default:
+        break;
+    }
+}
+
+/**
+ * @brief 进入临界区
+ * @param lun: 串口编号
+ * @retval 无
+ */
+void at_port_enter_critical(uint8_t lun)
+{
+    switch (lun)
+    {
+    case 0:
+        break;
+    case 1:
+        break;
+
+    default:
+        break;
+    }
+}
+
+/**
+ * @brief 退出临界区
+ * @param lun: 串口编号
+ * @retval 无
+ */
+void at_port_exit_critical(uint8_t lun)
+{
+    switch (lun)
+    {
+    case 0:
+        break;
+    case 1:
         break;
 
     default:

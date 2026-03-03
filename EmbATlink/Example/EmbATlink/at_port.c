@@ -80,10 +80,10 @@ void at_port_init(uint8_t lun)
 {
     switch (lun)
     {
-    case AT_LUN_SYS:
+    case 0:
         HAL_UART_Receive_IT(&huart1, at_rx_data[lun], 1); /* 开启串口接收中断 */
         break;
-    case AT_LUN_USER:
+    case 1:
         break;
 
     default:
@@ -100,9 +100,9 @@ void at_port_enter_critical(uint8_t lun)
 {
     switch (lun)
     {
-    case AT_LUN_SYS:
+    case 0:
         break;
-    case AT_LUN_USER:
+    case 1:
         break;
 
     default:
@@ -119,9 +119,9 @@ void at_port_exit_critical(uint8_t lun)
 {
     switch (lun)
     {
-    case AT_LUN_SYS:
+    case 0:
         break;
-    case AT_LUN_USER:
+    case 1:
         break;
 
     default:
@@ -140,10 +140,10 @@ void at_port_uart_transmit(uint8_t lun, const char *buf, uint16_t len)
 {
     switch (lun)
     {
-    case AT_LUN_SYS:
+    case 0:
         HAL_UART_Transmit(&huart1, (uint8_t *)buf, len, 0x100);
         break;
-    case AT_LUN_USER:
+    case 1:
         break;
 
     default:

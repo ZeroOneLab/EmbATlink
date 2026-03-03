@@ -220,7 +220,7 @@ static uint8_t at_cmd_send_and_wait(uint8_t lun, char *cmd, char **out_recv, con
  * @param    recv_buffer:接收数据
  * @param    cmd_id:AT指令ID
  * @param    format:格式化字符串
- * @retval   1:超时 2:匹配失败 0:成功
+ * @retval   0:成功 1:超时 2:匹配失败 3:缓冲区已满
  */
 uint8_t at_cmd_format_send_and_recv(uint8_t lun, char **recv_buffer, at_cmd_id_e cmd_id, char *format, ...)
 {
@@ -232,6 +232,9 @@ uint8_t at_cmd_format_send_and_recv(uint8_t lun, char **recv_buffer, at_cmd_id_e
     snprintf(at_send_buffer[lun], sizeof(at_send_buffer[lun]), "%s", at_cmd_table[cmd_id].cmd_str);
     vsnprintf(at_send_buffer[lun] + strlen(at_send_buffer[lun]), sizeof(at_send_buffer[lun]) - strlen(at_send_buffer[lun]), format, arg);
     va_end(arg);
+
+    if (strlen(at_send_buffer[lun]) == (sizeof(at_send_buffer[lun]) - 1))
+        return 3; // 缓冲区已满，可能溢出
 
     res = at_cmd_send_and_wait(lun, at_send_buffer[lun],
                                recv_buffer,

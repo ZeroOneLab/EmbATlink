@@ -124,8 +124,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if (huart->Instance == USART1)
   {
-    at_uart_recv_handler(AT_LUN_SYS, at_rx_data[AT_LUN_SYS], 1);
-    HAL_UART_Receive_IT(&huart1, at_rx_data[AT_LUN_SYS], 1);
+    at_uart_recv_handler(0, at_rx_data[0], 1);
+    HAL_UART_Receive_IT(&huart1, at_rx_data[0], 1);
   }
 }
 /* USER CODE END 1 */
