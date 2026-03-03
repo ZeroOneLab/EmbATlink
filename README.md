@@ -76,7 +76,7 @@ EmbATlink/
 
     - `AT_LUN_MAX`：设置实际使用的AT设备数量（如1路则定义为1）
 
-    - `AT_RECV/SEND_BUFFER_SIZE`：调整收发缓冲区大小，适配不同模组的响应长度
+    - `AT_RECV/SEND_BUFFER_SIZE`：调整收发缓冲区大小，适配不同模组的发送与响应长度
 
     - 日志宏：默认已开启`printf`打印，无需额外修改（如需关闭，注释即可）
 
@@ -381,7 +381,7 @@ int main(void)
 |问题现象|可能原因|解决方法|
 |---|---|---|
 |AT指令发送超时，返回ret=1|串口硬件未初始化/接线错误|检查串口GPIO配置、模组TX/RX与MCU交叉连接|
-|指令发送成功但响应匹配失败，返回ret=2|预期响应配置错误/模组返回格式不同|检查`at_cmd_table`中`expected_rsp`是否与模组手册一致|
+|指令发送成功但响应匹配失败，返回ret=2|预期响应配置错误/模组返回格式不同/发送指令数据过长|检查`at_cmd_table`中`expected_rsp`是否与模组手册一致;增大`AT_SEND_BUFFER_SIZE`|
 |被动监听无响应，monitor_idx始终为0xFF|串口接收回调未对接/缓冲区溢出/枚举-表不匹配|1. 检查`at_uart_recv_handler`是否正确调用；2. 增大`AT_RECV_BUFFER_SIZE`；3. 检查`at_monitor_key_e`枚举与监听表下标是否一一对应|
 |串口乱码/日志打印异常|波特率不匹配/printf未重定向|核对MCU与模组的串口波特率，检查`fputc`重定向和微库勾选|
 |RTOS下通信乱码/指令执行异常|无临界区保护|在`at_port.c`中实现`at_port_enter/exit_critical`，用信号量/关中断保护|
