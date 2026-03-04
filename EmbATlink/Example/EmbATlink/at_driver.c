@@ -168,6 +168,7 @@ static uint8_t at_cmd_send_and_wait(uint8_t lun, char *cmd, char **out_recv, con
         if (cmd_config->expected_rsp == NULL) /* 不需要对比数据, 超时后，直接返回接收的数据 */
         {
             at_port_delay_ms(cmd_config->recv_timeout_ms); /* 超时后 */
+            AT_LOG_I("[AT][SUCC] CMD:%s\r\n", cmd); 
             if (out_recv != NULL)
                 *out_recv = &at_recv_buffer[lun][0]; /* 传递接收数据 */
             res = 0;
