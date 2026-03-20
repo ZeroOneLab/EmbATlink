@@ -399,13 +399,15 @@ int main(void)
 
 2. 日志示例：
 
-    - 指令发送成功：`[AT][SUCC] CMD:AT`
+    - 指令发送成功：`[AT:{LUN}][SUCC] CMD:AT`
 
-    - 指令发送超时重发：`[AT][RETRY][1] CMD:AT, TIME OUT`
+    - 指令发送超时重发：`[AT:{LUN}][WARN][1] CMD:AT, TIME OUT`
 
-    - 响应匹配失败：`[AT][ERR][1] CMD:AT, RECV: ERROR`
+    - 响应匹配失败：`[AT:{LUN}][WARN][1] CMD:AT, RECV: ERROR`
 
-    - 缓冲区溢出：`[ERR] RECV BUFFER OVERFLOW (LUN:0)`
+    - 指令执行失败：`[AT:{LUN}][ERR] CMD:AT`
+
+    - 缓冲区溢出：`[AT:{LUN}][ERR] RECV BUFFER OVERFLOW`
 
 日志直接指出**错误类型、指令内容、设备LUN**，大幅降低物联网模组的调试难度。
 

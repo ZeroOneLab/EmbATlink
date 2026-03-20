@@ -1,7 +1,7 @@
 /**
  * @file    at_port.c
- * @version v1.0
- * @date    2026-02-28
+ * @version v1.1
+ * @date    2026-03-20
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -32,6 +32,7 @@
 
 #include "main.h"
 #include "usart.h"
+
 // clang-format off
 /* AT指令表 */
 const at_cmd_config_t at_cmd_table[AT_CMD_LAST] = {
@@ -49,7 +50,7 @@ const char *at_monitor_key_table[AT_MONITOR_LAST] = {
 };
 // clang-format on
 
-/* AT接收数据缓存 */
+/* AT接收数据缓存,目前单次最大接收1字节 */
 uint8_t at_rx_data[AT_LUN_MAX][1];
 
 /**

@@ -1,7 +1,7 @@
 /**
  * @file    at_driver.h
- * @version v1.0
- * @date    2026-02-28
+ * @version v1.1
+ * @date    2026-03-20
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *

@@ -1,7 +1,7 @@
 /**
  * @file    at_driver.c
- * @version v1.0
- * @date    2026-02-28
+ * @version v1.1
+ * @date    2026-03-20
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -103,7 +103,7 @@ void at_uart_recv_handler(uint8_t lun, const uint8_t *data, uint16_t len)
     if ((data_len + len) >= AT_RECV_BUFFER_SIZE) /* 接收缓冲区溢出 */
     {
         at_rx_status[lun] = 0;
-        AT_LOG_E("[ERR] RECV BUFFER OVERFLOW (LUN:%d)\r\n", lun);
+        AT_LOG_E("[AT:%d][ERR] RECV BUFFER OVERFLOW!\r\n", lun);
         return;
     }
 
@@ -168,7 +168,7 @@ static uint8_t at_cmd_send_and_wait(uint8_t lun, char *cmd, char **out_recv, con
         if (cmd_config->expected_rsp == NULL) /* 不需要对比数据, 超时后，直接返回接收的数据 */
         {
             at_port_delay_ms(cmd_config->recv_timeout_ms); /* 超时后 */
-            AT_LOG_I("[AT][SUCC] CMD:%s\r\n", cmd); 
+            AT_LOG_I("[AT][SUCC] CMD:%s\r\n", cmd);
             if (out_recv != NULL)
                 *out_recv = &at_recv_buffer[lun][0]; /* 传递接收数据 */
             res = 0;
@@ -205,10 +205,13 @@ static uint8_t at_cmd_send_and_wait(uint8_t lun, char *cmd, char **out_recv, con
         if (res == 0)
             break;
         else if (res == 1)
-            AT_LOG_W("[AT][RETRY][%hhu] CMD:%s, TIME OUT\r\n", send_cnt, cmd);
+            AT_LOG_W("[AT][WARN][%hhu] CMD:%s, TIME OUT\r\n", send_cnt, cmd);
         else if (res == 2)
-            AT_LOG_E("[AT][ERR][%hhu] CMD:%s, RECV: %s\r\n", send_cnt, cmd, at_recv_buffer[lun]);
+            AT_LOG_E("[AT][WARN][%hhu] CMD:%s, RECV: %s\r\n", send_cnt, cmd, at_recv_buffer[lun]);
     }
+
+    if (res != 0)
+        AT_LOG_E("[AT:%d][ERR] CMD:%s\r\n", lun, cmd);
 
     at_port_exit_critical(lun);
 
