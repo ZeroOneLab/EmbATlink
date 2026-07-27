@@ -8,7 +8,7 @@
 
 **用在哪里？** 任何需要通过串口发送 AT 指令与无线模组（WiFi / 蓝牙 / 4G / NB-IoT 等）通信的嵌入式项目。裸机和 RTOS 均可使用。
 
-**怎么移植？** 核心驱动层 (`at_driver`) 与硬件完全解耦，移植时只需适配 `at_port.c` / `at_port.h` 中的 2 个宏和 6 个端口函数，无需修改驱动层一行代码。
+**怎么移植？** 核心驱动层 (`at_driver`) 与硬件完全解耦，移植时只需适配 `at_port.c` / `at_port.h` 中的 2 个宏和 7 个端口函数，无需修改驱动层一行代码。
 
 ## 目录
 
@@ -38,9 +38,9 @@
 | 组件 | Flash | RAM | 说明 |
 |------|-------|-----|------|
 | 驱动核心 (`at_driver` + `at_port`) | **~1.3KB** | **16 bytes** | 通道数组，不含用户接收缓冲区 |
-| Demo 应用层 (`main.c`) | ~1.7KB | 268 bytes | 含 256 bytes 接收缓冲区 |
-| STM32 标准外设库 + C 库 + 启动 | ~5.6KB | 1,068 bytes | 含 1KB 系统栈 |
-| **Demo 工程总计** | **~8.6KB** | **~1.3KB** | |
+| Demo 应用层 (`main.c`) | ~1.9KB | 268 bytes | 含 256 bytes 接收缓冲区 |
+| STM32 标准外设库 + C 库 + 启动 | ~5.8KB | 1,068 bytes | 含 1KB 系统栈 |
+| **Demo 工程总计** | **~8.9KB** | **~1.3KB** | |
 
 > 基于 STM32F103C8、ARM Compiler 5、MicroLIB、-O3 优化。接收缓冲区由用户按需定义，`AT_CHANNEL_MAX` 决定通道数组大小。
 
@@ -103,22 +103,23 @@ at_channel_t at_cfg = {
     .recv_buf  = recv_buf,
     .recv_size = sizeof(recv_buf),
     .urc_keys  = at_urc_keys,
-    .urc_count = ARRAY_SIZE(at_urc_keys),
+    .urc_count = sizeof(at_urc_keys) / sizeof(at_urc_keys[0]),
 };
 
+/* 注册到通道 0：后续所有 API 的第一个参数 0 均指此通道 */
 at_channel_init(0, &at_cfg);
 ```
 
+> **通道号说明**：`at_channel_init()` 的第一个参数是**通道号**，代表将该配置注册到第几号通道。后续所有 API（`at_cmd_exec`、`at_recv_push`、`at_urc_check` 等）的第一个参数都是通道号，用于区分不同的串口/模组。每个通道独立维护接收缓冲区、URC 关键字表等资源。例如通道 0 绑定 USART1，通道 1 绑定 USART2，互不干扰。
+>
 > **说明**：`urc_keys` 中的关键字只要出现在接收数据中就会被扫描命中。上面的 `+RECV:`、`+STAT:` 只是示例，你可以换成任意模组的 URC 关键字，如 `+IPD`、`+MQTT`、`+CONNECT` 等。检测 URC 只需调用 `at_urc_check()`，传入通道号和枚举下标即可：
 >
 > ```c
-> if (at_urc_check(channel, AT_URC_RECV) == AT_OK) {
+> if (at_urc_check(0, AT_URC_RECV) == AT_OK) {
 >     /* 命中 +RECV: 关键字，执行相应处理 */
 >     printf("[URC] Data received\r\n");
 > }
 > ```
->
-> 以上示例中 `channel = 0`，即与 `at_channel_init()` 传入的通道号一致。
 
 ### 2. 发送 AT 指令
 
@@ -127,8 +128,8 @@ at_channel_init(0, &at_cfg);
 #### 固定指令（发送和预期响应均不变）
 
 ```c
-/* 发送 "AT"，期望响应 "OK"，重试 20 次，轮询间隔 20ms，超时 500ms */
-at_cmd_exec(channel, NULL, &(at_cmd_config_t){"AT", "OK", 20, 20, 500});
+/* 通道 0，发送 "AT"，期望响应 "OK"，重试 20 次，轮询间隔 20ms，超时 500ms */
+at_cmd_exec(0, &(at_cmd_config_t){"AT", "OK", 20, 20, 500});
 ```
 
 #### 发送指令动态变化
@@ -139,10 +140,10 @@ at_cmd_exec(channel, NULL, &(at_cmd_config_t){"AT", "OK", 20, 20, 500});
 char cmd[32];
 
 snprintf(cmd, sizeof(cmd), "ATE%d", 0);  /* 拼接后为 "ATE0" — 关闭回显 */
-at_cmd_exec(channel, NULL, &(at_cmd_config_t){cmd, "OK", 20, 20, 500});
+at_cmd_exec(0, &(at_cmd_config_t){cmd, "OK", 20, 20, 500});
 
 snprintf(cmd, sizeof(cmd), "ATE%d", 1);  /* 拼接后为 "ATE1" — 开启回显 */
-at_cmd_exec(channel, NULL, &(at_cmd_config_t){cmd, "OK", 20, 20, 500});
+at_cmd_exec(0, &(at_cmd_config_t){cmd, "OK", 20, 20, 500});
 ```
 
 #### 预期响应动态变化
@@ -154,7 +155,7 @@ char cmd[32], expect[32];
 
 snprintf(cmd,    sizeof(cmd),    "AT+MODE=%d", mode);  /* 拼接后为 "AT+MODE=1" */
 snprintf(expect, sizeof(expect), "+MODE:%d",  mode);  /* 拼接后为 "+MODE:1"   */
-at_cmd_exec(channel, NULL, &(at_cmd_config_t){cmd, expect, 3, 20, 1000});
+at_cmd_exec(0, &(at_cmd_config_t){cmd, expect, 3, 20, 1000});
 ```
 
 #### 响应参数提取
@@ -162,15 +163,16 @@ at_cmd_exec(channel, NULL, &(at_cmd_config_t){cmd, expect, 3, 20, 1000});
 AT 指令的响应中通常携带状态值和数据。`at_resp_param_get()` 用于从响应字符串中提取第 N 个逗号分隔的参数：
 
 ```c
+/* 通道 0，发送 "AT+GETMODE"，期望响应 "+MODE:"，重试 3 次，轮询间隔 20ms，超时 1000ms */
+at_cmd_exec(0, &(at_cmd_config_t){"AT+GETMODE", "+MODE:", 3, 20, 1000});
+
 /* 获取接收缓冲区 */
 uint8_t *resp;
 uint16_t len;
-at_recv_get(channel, &resp, &len);
+at_recv_get(0, &resp, &len);
 
 /*
- * 示例：发送 "AT+GETMODE" 查询当前模式
- * 响应: "+MODE:0,1,2\r\n"
- *
+ * 示例：响应 "+MODE:0,1,2\r\n"
  * 提取 index=0 得到 "0"，index=1 得到 "1"，index=2 得到 "2"
  */
 char param[8];
@@ -193,6 +195,21 @@ printf("Modes: %d, %d, %d\r\n", modes[0], modes[1], modes[2]);
 char json[128];
 at_resp_param_get((const char *)resp, len, 2, json, sizeof(json));
 printf("Data: %s\r\n", json);   /* 打印 JSON 字符串，例如 {"status":"online"} */
+```
+
+#### 未知响应内容获取
+
+当发送 AT 指令后不确定模组会返回什么内容时，可以将 `expect` 设为 `NULL`，仅等待超时后通过 `at_recv_get()` 获取完整响应：
+
+```c
+/* 通道 0，发送 "AT+VERSION"，不匹配特定响应（expect 传 NULL），等待 500ms */
+at_cmd_exec(0, &(at_cmd_config_t){"AT+VERSION", NULL, 1, 20, 500});
+
+/* 获取接收缓冲区，查看模组实际返回了什么 */
+uint8_t *resp;
+uint16_t len;
+at_recv_get(0, &resp, &len);
+printf("Response: %.*s\r\n", len, resp);
 ```
 
 ### 3. 串口接收对接
@@ -258,10 +275,10 @@ URC（Unsolicited Result Code）采用 **轮询检测** 机制。注册关键字
 
 ```c
 /* 检测是否收到状态变更 URC */
-if (at_urc_check(channel, AT_URC_STAT) == AT_OK) {
+if (at_urc_check(0, AT_URC_STAT) == AT_OK) {
     /* 命中 +STAT: 关键字，执行相应处理 */
     printf("[URC] Status changed\r\n");
-    at_recv_reset(channel);   /* 清空缓冲区，准备下一次接收 */
+    at_recv_reset(0);   /* 清空缓冲区，准备下一次接收 */
 }
 ```
 
@@ -290,23 +307,23 @@ if (at_urc_check(channel, AT_URC_STAT) == AT_OK) {
  * 场景：模块 A 负责处理主题数据，只关心 AAA 和 CCC
  * 检测到 +RECV: 后，定位并移除对应的数据块
  */
-if (at_urc_check(channel, AT_URC_RECV) == AT_OK) {
+if (at_urc_check(0, AT_URC_RECV) == AT_OK) {
     uint8_t *buf;
     uint16_t len;
-    at_recv_get(channel, &buf, &len);
+    at_recv_get(0, &buf, &len);
 
     /*
      * 用户需要自行计算数据的位置和长度。
      * 例如已知 AAA 在缓冲区偏移 0 处，长度 15，消费后移除：
      */
-    at_recv_remove(channel, 0, 15);
+    at_recv_remove(0, 0, 15);
     /* 移除后，AAA 后面的全部数据（BBB + CCC）整体前移填补 AAA 的空洞 */
 }
 
 /* 之后模块 B 检测网络状态 URC 时，BBB 数据仍然在缓冲区中，不受影响 */
-if (at_urc_check(channel, AT_URC_STAT) == AT_OK) {
+if (at_urc_check(0, AT_URC_STAT) == AT_OK) {
     /* 处理网络状态变更... */
-    at_recv_remove(channel, offset_of_bbb, length_of_bbb);
+    at_recv_remove(0, offset_of_bbb, length_of_bbb);
 }
 ```
 
@@ -326,12 +343,12 @@ uint16_t ota_size = 10240;
 uint16_t ota_len = 0;
 
 /* 切换到 OTA 大缓冲区（同时保存原缓冲区信息） */
-at_recv_buf_swap(channel, &ota_buf, &ota_size, &ota_len);
+at_recv_buf_swap(0, &ota_buf, &ota_size, &ota_len);
 
 /* ... 执行 OTA 数据接收 ... */
 
 /* OTA 完成，切换回原缓冲区 */
-at_recv_buf_swap(channel, &ota_buf, &ota_size, &ota_len);
+at_recv_buf_swap(0, &ota_buf, &ota_size, &ota_len);
 
 /*
  * free 之前确保 OTA 数据已处理完毕（如写入 Flash、校验、转换等）。
@@ -348,13 +365,13 @@ free(ota_buf);   /* 此时 ota_buf 指向原 normal_buf，注意不要 free 错�
 
 ```c
 /* 多步事务：进入透传 + 发送数据 */
-at_session_lock(channel);
+at_session_lock(0);
 
-at_cmd_exec(channel, NULL, &(at_cmd_config_t){"AT+QIOPEN", "CONNECT", 3, 20, 5000});
+at_cmd_exec(0, &(at_cmd_config_t){"AT+QIOPEN", "CONNECT", 3, 20, 5000});
 /* 进入透传模式后，后续数据直接发送 */
-at_cmd_exec(channel, NULL, &(at_cmd_config_t){payload_data, NULL, 1, 20, 1000});
+at_cmd_exec(0, &(at_cmd_config_t){payload_data, NULL, 1, 20, 1000});
 
-at_session_unlock(channel);
+at_session_unlock(0);
 ```
 
 > `at_session_lock()` 是**递归锁**，同一任务可嵌套加锁。其他任务在锁未释放时会被阻塞，直到持有锁的任务执行完 `at_session_unlock()` 后才可获取锁。裸机环境下无任务切换，通常无需使用。
@@ -420,6 +437,7 @@ Demo 不使用真实无线模组，而是通过**串口助手模拟**模组响�
 | 1 | `AT\r\n` | `OK\r\n` | 返回 AT_OK |
 | 2 | `ATE0\r\n` | `OK\r\n` | 关闭回显，返回 AT_OK |
 | 3 | `AT+GETMODE\r\n` | `+MODE:1,2,3\r\nOK\r\n` | 提取参数得到 modes[]={1,2,3} |
+| 4 | `AT+VERSION\r\n` | 任意响应（`expect = NULL`） | 通过 `at_recv_get()` 读取完整响应 |
 
 #### URC 测试
 
@@ -431,7 +449,7 @@ Demo 不使用真实无线模组，而是通过**串口助手模拟**模组响�
 
 ## 移植指南
 
-移植只需修改 `at_port.c` / `at_port.h`，调整 2 个宏并实现 6 个端口函数。
+移植只需修改 `at_port.c` / `at_port.h`，调整 2 个宏并实现 7 个端口函数。
 
 ### AT_CHANNEL_MAX 宏定义
 
@@ -440,6 +458,14 @@ Demo 不使用真实无线模组，而是通过**串口助手模拟**模组响�
 | **功能** | 配置最大 AT 通道数量 |
 | **位置** | `at_port.h` |
 | **实现要点** | 根据实际连接的模组数量调整。例如仅使用 1 路模组定义为 `1`，使用 2 路模组定义为 `2`。驱动内部使用此值静态分配通道数组，按需配置可节省 RAM |
+
+### at_port_init(channel)
+
+| 项目 | 说明 |
+|------|------|
+| **功能** | 初始化通道硬件资源（互斥锁、中断、NVIC 等） |
+| **参数** | `channel` — 通道号 |
+| **实现要点** | 由 `at_channel_init()` 内部调用，用户无需手动调用。在 `at_port.c` 中通过 `switch(channel)` 实现各通道的硬件初始化。RTOS 下在此创建递归互斥锁；裸机下可留空。示例：`case 0: s_at_mutex[0] = xSemaphoreCreateRecursiveMutex(); HAL_NVIC_EnableIRQ(USART2_IRQn); break;` |
 
 ### AT_LOG 日志宏
 
@@ -511,8 +537,8 @@ Demo 不使用真实无线模组，而是通过**串口助手模拟**模组响�
 
 | 函数 | 功能 |
 |------|------|
-| `at_channel_init(ch, cfg)` | 注册通道（缓冲区 + URC 关键字） |
-| `at_cmd_exec(ch, out, cfg)` | 发送 AT 指令并等待响应 |
+| `at_channel_init(ch, cfg)` | 注册通道（缓冲区 + URC 关键字 + 调用 at_port_init） |
+| `at_cmd_exec(ch, cfg)` | 发送 AT 指令并等待响应 |
 | `at_recv_push(ch, data, len)` | 注入接收数据（中断 / DMA 回调调用） |
 | `at_recv_reset(ch)` | 重置接收缓冲区 |
 | `at_recv_remove(ch, offset, bytes)` | 从缓冲区指定位置移除字节 |
@@ -523,6 +549,27 @@ Demo 不使用真实无线模组，而是通过**串口助手模拟**模组响�
 | `at_session_lock(ch)` / `at_session_unlock(ch)` | 会话锁保护多步事务原子性 |
 
 ## 更新日志
+
+### v2.1 — API 简化与端口层增强
+
+**API 变更（不兼容）**
+- `at_cmd_exec()` 移除 `out_resp` 参数，需要响应数据时直接调用 `at_recv_get()` 获取，职责更清晰
+
+**新增**
+- `at_port_init()` 端口函数，由 `at_channel_init()` 内部调用，用于初始化通道硬件资源（互斥锁、中断、NVIC 等），保持高内聚低耦合
+
+**文档**
+- 通道注册示例改用 `sizeof` 替代 `ARRAY_SIZE` 宏，更纯粹
+- 补充通道号参数说明，明确 `channel` 参数的作用
+- 新增"未知响应内容获取"示例，演示 `expect=NULL` 的使用场景
+- 所有示例代码统一使用具体通道号（如 `0`）替代变量 `channel`
+- Demo 工程新增 `AT+VERSION` 未知响应演示
+
+**工程**
+- 驱动源文件移至项目根目录，去除冗余 `EmbATlink/` 嵌套层
+- 新增 `.gitignore`，忽略 `.o` / `.d` 等编译产物
+- 移植指南端口函数数量从 6 个更新为 7 个
+- 更新资源占用数据
 
 ### v2.0 — 架构重构与 API 全面升级
 

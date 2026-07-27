@@ -1,0 +1,30 @@
+# 编译输出
+*.o
+*.d
+*.lst
+*.map
+*.axf
+*.hex
+*.htm
+*.lnp
+*.dep
+*.build_log.htm
+
+# MDK Output / Listing 目录
+**/Output/
+**/Listing/
+
+# 日志
+log.txt
+
+# Keil MDK 用户配置
+*.uvguix.*
+*.uvoptx
+*.scvd
+JLinkLog.txt
+JLinkSettings.ini
+
+# 编辑器
+.vscode/
+*.swp
+*.swo

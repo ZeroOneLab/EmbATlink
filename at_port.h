@@ -1,7 +1,7 @@
 /**
  * @file    at_port.h
- * @version v2.0
- * @date    2026-07-24
+ * @version v2.1
+ * @date    2026-07-27
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -40,6 +40,14 @@
 #define AT_LOG_I(...)
 #define AT_LOG_W(...)
 #define AT_LOG_E(...)
+
+/**
+ * @brief   初始化通道硬件资源
+ * @param   [in] channel:  通道号
+ * @retval  无
+ * @note    由 at_channel_init() 内部调用，用户无需手动调用。
+ */
+void at_port_init(uint8_t channel);
 
 /**
  * @brief   延时

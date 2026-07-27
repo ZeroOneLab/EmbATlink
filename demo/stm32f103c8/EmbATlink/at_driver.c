@@ -1,7 +1,7 @@
 /**
  * @file    at_driver.c
- * @version v2.0
- * @date    2026-07-24
+ * @version v2.1
+ * @date    2026-07-27
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -53,7 +53,7 @@ static char *mem_strstr(const char *haystack, uint16_t haystack_len, const char 
 }
 
 /* 发送命令行并阻塞等待响应（支持重试） */
-static at_status_t send_and_wait(at_channel_t *ch, const char *cmd, char **out_resp,
+static at_status_t send_and_wait(at_channel_t *ch, const char *cmd,
                                  const at_cmd_config_t *config)
 {
     at_status_t result = AT_ERR_TIMEOUT;
@@ -70,8 +70,6 @@ static at_status_t send_and_wait(at_channel_t *ch, const char *cmd, char **out_r
         if (config->expect == NULL) {
             at_port_delay_ms(config->timeout_ms);
             AT_LOG_D("[AT:%d][SUCC] CMD:%s", ch->channel, cmd);
-            if (out_resp != NULL)
-                *out_resp = (char *)ch->recv_buf;
             result = AT_OK;
             break;
         }
@@ -88,8 +86,6 @@ static at_status_t send_and_wait(at_channel_t *ch, const char *cmd, char **out_r
                 continue;
 
             if (mem_strstr((const char *)ch->recv_buf, ch->rx_len, config->expect) != NULL) {
-                if (out_resp != NULL)
-                    *out_resp = (char *)ch->recv_buf;
                 result = AT_OK;
                 break;
             }
@@ -139,6 +135,8 @@ at_status_t at_channel_init(uint8_t channel, const at_channel_t *cfg)
 
     memset(cfg->recv_buf, 0, cfg->recv_size);
 
+    at_port_init(channel);
+
     return AT_OK;
 }
 
@@ -147,8 +145,7 @@ at_status_t at_channel_init(uint8_t channel, const at_channel_t *cfg)
  * ════════════════════════════════════════════════════════════════ */
 
 /* 发送完整 AT 命令行并等待响应 */
-at_status_t at_cmd_exec(uint8_t channel, char **out_resp,
-                        const at_cmd_config_t *config)
+at_status_t at_cmd_exec(uint8_t channel, const at_cmd_config_t *config)
 {
     if (channel >= AT_CHANNEL_MAX)
         return AT_ERR_PARAM;
@@ -163,7 +160,7 @@ at_status_t at_cmd_exec(uint8_t channel, char **out_resp,
     at_status_t ret;
 
     at_port_lock(channel);
-    ret = send_and_wait(ch, config->cmd, out_resp, config);
+    ret = send_and_wait(ch, config->cmd, config);
     at_port_unlock(channel);
     return ret;
 }
