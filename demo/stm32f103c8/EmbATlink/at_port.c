@@ -1,7 +1,7 @@
 /**
  * @file    at_port.c
- * @version v2.0
- * @date    2026-07-24
+ * @version v2.1
+ * @date    2026-07-27
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -28,6 +28,23 @@
  */
 
 #include "at_port.h"
+
+/* ── 初始化 ── */
+
+/* 初始化通道硬件资源（互斥锁、中断、NVIC 等） */
+void at_port_init(uint8_t channel)
+{
+    switch (channel)
+    {
+    case 0:
+        /* USART1 中断已在 usart1_init() 中完成，此处无需额外操作 */
+        break;
+    case 1:
+        break;
+    default:
+        break;
+    }
+}
 
 /* ── 时间 ── */
 

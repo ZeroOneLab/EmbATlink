@@ -1,7 +1,7 @@
 /**
  * @file    at_driver.h
- * @version v2.0
- * @date    2026-07-24
+ * @version v2.1
+ * @date    2026-07-27
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -90,7 +90,6 @@ at_status_t at_channel_init(uint8_t channel, const at_channel_t *cfg);
 /**
  * @brief   发送完整 AT 命令行并阻塞等待响应
  * @param   [in]  channel:   通道号
- * @param   [out] out_resp:  响应内容指针（可为 NULL）
  * @param   [in]  config:    指令配置（cmd/expect/retry/poll_ms/timeout_ms）
  * @retval  AT_OK:             成功
  * @retval  AT_ERR_PARAM:      config/cmd 为 NULL 或通道未初始化
@@ -98,10 +97,10 @@ at_status_t at_channel_init(uint8_t channel, const at_channel_t *cfg);
  * @retval  AT_ERR_NO_MATCH:   响应不匹配
  * @note    调用方负责拼接完整的 cmd 字符串（含参数）。驱动不参与格式化。
  *          expect 采用子串匹配，仅用于识别响应类型。
- *          支持 compound literal: at_cmd_exec(ch, NULL, &(at_cmd_config_t){"AT","OK",3,20,200});
+ *          需要响应数据时，调用 at_recv_get() 获取缓冲区指针。
+ *          支持 compound literal: at_cmd_exec(0, &(at_cmd_config_t){"AT","OK",3,20,200});
  */
-at_status_t at_cmd_exec(uint8_t channel, char **out_resp,
-                        const at_cmd_config_t *config);
+at_status_t at_cmd_exec(uint8_t channel, const at_cmd_config_t *config);
 
 /**
  * @brief   开启 AT 会话锁（保护多步指令事务的原子性）

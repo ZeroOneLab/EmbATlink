@@ -22,8 +22,6 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
 /* ════════════════════════════════════════════════════════════════
  *  全局变量（供 at_port.c / stm32f10x_it.c / log_printf extern 使用）
  * ════════════════════════════════════════════════════════════════ */
@@ -206,19 +204,19 @@ int main(void)
     usart1_init(115200);
 
     log_printf("+==========================================+");
-    log_printf("|    EmbATlink v2.0  |  STM32F103C8       |");
+    log_printf("|    EmbATlink v2.1  |  STM32F103C8       |");
     log_printf("|    USART1 PA9-PA10 @  115200 bps 		  |");
     log_printf("|    github.com/ZeroOneLab/EmbATlink      |");
     log_printf("+==========================================+");
 
     log_printf("[BOOT] System Init OK");
 
-    /* ── 通道注册 ── */
+    /* ── 通道注册（通道 0：绑定 USART1，后续所有 API 第一个参数 0 均指此通道） ── */
     at_channel_t at_cfg = {
         .recv_buf  = recv_buf,
         .recv_size = sizeof(recv_buf),
         .urc_keys  = at_urc_keys,
-        .urc_count = ARRAY_SIZE(at_urc_keys),
+        .urc_count = sizeof(at_urc_keys) / sizeof(at_urc_keys[0]),
     };
     at_channel_init(0, &at_cfg);
     log_printf("[INIT] Channel 0 ready");
@@ -226,8 +224,8 @@ int main(void)
     /* ── 自检 ── */
     log_printf("[DEMO] AT -> OK\\r\\n");
     {
-		/* 发送 "AT"，期望响应 "OK"，重试 5 次，轮询间隔 20ms，超时 3000ms */
-        if(at_cmd_exec(0, NULL, &(at_cmd_config_t){"AT", "OK", 5, 20, 3000}) != AT_OK)
+		/* 通道 0，发送 "AT"，期望响应 "OK"，重试 5 次，轮询间隔 20ms，超时 3000ms */
+        if(at_cmd_exec(0, &(at_cmd_config_t){"AT", "OK", 5, 20, 3000}) != AT_OK)
             log_printf("[DEMO] AT FAIL");
     }
 
@@ -236,16 +234,16 @@ int main(void)
     {
         char cmd[32];
         snprintf(cmd, sizeof(cmd), "ATE%d", 0);  /* "ATE0" */
-		/* 发送 "ATE0"，期望响应 "OK"，重试 5 次，轮询间隔 20ms，超时 3000ms */
-        if(at_cmd_exec(0, NULL, &(at_cmd_config_t){cmd, "OK", 5, 20, 3000}) != AT_OK)
+		/* 通道 0，发送 "ATE0"，期望响应 "OK"，重试 5 次，轮询间隔 20ms，超时 3000ms */
+        if(at_cmd_exec(0, &(at_cmd_config_t){cmd, "OK", 5, 20, 3000}) != AT_OK)
             log_printf("[DEMO] ATE0 FAIL");
     }
 
     /* ── 演示 AT+GETMODE（查询模式） ── */
     log_printf("[DEMO] AT+GETMODE -> +MODE:0,1,2\\r\\n");
     {
-		/* 发送 "AT+GETMODE"，期望响应 "+MODE:0,1,2"，重试 5 次，轮询间隔 20ms，超时 3000ms */
-        if ( at_cmd_exec(0, NULL, &(at_cmd_config_t){"AT+GETMODE", "+MODE:", 5, 20, 3000})== AT_OK) {
+		/* 通道 0，发送 "AT+GETMODE"，期望响应 "+MODE:"，重试 5 次，轮询间隔 20ms，超时 3000ms */
+        if ( at_cmd_exec(0, &(at_cmd_config_t){"AT+GETMODE", "+MODE:", 5, 20, 3000})== AT_OK) {
             uint8_t *resp;
             uint16_t len;
             at_recv_get(0, &resp, &len);
@@ -260,6 +258,19 @@ int main(void)
         } else {
             log_printf("[DEMO] AT+GETMODE FAIL");
         }
+    }
+
+    /* ── 演示 AT+VERSION（未知响应，expect 传 NULL，等待后读取全部内容） ── */
+    log_printf("[DEMO] AT+VERSION -> any response (v2.1)");
+    {
+        /* 通道 0，发送 "AT+VERSION"，不匹配特定响应，等待 3000ms */
+        at_cmd_exec(0, &(at_cmd_config_t){"AT+VERSION", NULL, 1, 20, 3000});
+
+        /* 获取接收缓冲区，查看模组实际返回内容 */
+        uint8_t *resp;
+        uint16_t len;
+        at_recv_get(0, &resp, &len);
+        log_printf("[DEMO] Response: %.*s", len, resp);
     }
 
     /* ── 提示 URC 测试 ── */

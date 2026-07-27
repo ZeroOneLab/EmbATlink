@@ -1,7 +1,7 @@
 /**
  * @file    at_port.h
- * @version v2.0
- * @date    2026-07-24
+ * @version v2.1
+ * @date    2026-07-27
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -44,6 +44,15 @@ void log_printf(const char *fmt, ...);
 #define AT_LOG_I(...)   log_printf(__VA_ARGS__)
 #define AT_LOG_W(...)   log_printf(__VA_ARGS__)
 #define AT_LOG_E(...)   log_printf(__VA_ARGS__)
+
+/**
+ * @brief   初始化通道硬件资源（互斥锁、中断、NVIC 等）
+ * @param   [in] channel:  通道号
+ * @retval  无
+ * @note    由 at_channel_init() 内部调用，用户无需手动调用。
+ *          在 at_port.c 中通过 switch(channel) 实现各通道的硬件初始化。
+ */
+void at_port_init(uint8_t channel);
 
 /**
  * @brief   延时
