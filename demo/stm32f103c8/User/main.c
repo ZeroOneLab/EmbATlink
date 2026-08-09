@@ -204,7 +204,7 @@ int main(void)
     usart1_init(115200);
 
     log_printf("+==========================================+");
-    log_printf("|    EmbATlink v2.1  |  STM32F103C8       |");
+    log_printf("|    EmbATlink v2.2  |  STM32F103C8       |");
     log_printf("|    USART1 PA9-PA10 @  115200 bps 		  |");
     log_printf("|    github.com/ZeroOneLab/EmbATlink      |");
     log_printf("+==========================================+");
@@ -261,7 +261,7 @@ int main(void)
     }
 
     /* ── 演示 AT+VERSION（未知响应，expect 传 NULL，等待后读取全部内容） ── */
-    log_printf("[DEMO] AT+VERSION -> any response (v2.1)");
+    log_printf("[DEMO] AT+VERSION -> any response (v2.2)");
     {
         /* 通道 0，发送 "AT+VERSION"，不匹配特定响应，等待 3000ms */
         at_cmd_exec(0, &(at_cmd_config_t){"AT+VERSION", NULL, 1, 20, 3000});
@@ -271,6 +271,44 @@ int main(void)
         uint16_t len;
         at_recv_get(0, &resp, &len);
         log_printf("[DEMO] Response: %.*s", len, resp);
+    }
+
+    /* ── 演示 at_cmd_seq_exec（原子指令序列） ── */
+    log_printf("[DEMO] SEQ EXEC: 1.AT+PASSTHRU=x -> CONNECT\\r\\n");
+    log_printf("[DEMO] SEQ EXEC: 2.send data (no reply)");
+    {
+        /*
+         * 场景：一个逻辑操作需要多条 AT 指令按顺序执行，且中途不能被
+         * 其他指令打乱或插队（指令内容仅为示例，重点是"原子性"）：
+         *
+         *   步骤 1：AT+PASSTHRU=5  进入 5 字节透传模式（期望回复 CONNECT）
+         *   步骤 2：HELLO          发送透传数据（expect=NULL，仅发送）
+         *
+         * at_cmd_seq_exec 将这组指令视为一个原子事务，保证：
+         *   · 顺序 —— 步骤严格按序执行，不能打乱
+         *   · 插队防护 —— 整段自动持有会话锁，RTOS 下其他任务的
+         *                  AT 指令无法插入事务中途（否则会被模组
+         *                  误当作透传数据）
+         *   · 整段重试 —— 任一步失败，事务从步骤 1 重新开始，
+         *                  不会停留在"半截成功"状态
+         *
+         * 无需手动 at_session_lock/unlock，也无需外部再套重试循环。
+         */
+        char data[] = "HELLO";                                    /* 透传数据        */
+        char pass_cmd[32];
+        snprintf(pass_cmd, sizeof(pass_cmd), "AT+PASSTHRU=%d", (int)strlen(data));
+
+        at_cmd_config_t seq[] = {
+            {pass_cmd, "CONNECT", 1, 20, 3000},                   /* 步骤1：进入透传  */
+            {data,     NULL,     1, 20, 1000},                    /* 步骤2：发送数据  */
+        };
+
+        uint8_t failed_index = 0;
+        if (at_cmd_seq_exec(0, seq, 2, 3, &failed_index) == AT_OK) {
+            log_printf("[DEMO] SEQ EXEC OK: all steps done");
+        } else {
+            log_printf("[DEMO] SEQ EXEC FAIL: step %u failed (retried %u times)", failed_index, 3);
+        }
     }
 
     /* ── 提示 URC 测试 ── */

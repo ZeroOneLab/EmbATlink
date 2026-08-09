@@ -1,7 +1,7 @@
 /**
  * @file    at_driver.c
- * @version v2.1
- * @date    2026-07-27
+ * @version v2.2
+ * @date    2026-08-09
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -69,7 +69,7 @@ static at_status_t send_and_wait(at_channel_t *ch, const char *cmd,
 
         if (config->expect == NULL) {
             at_port_delay_ms(config->timeout_ms);
-            AT_LOG_D("[AT:%d][SUCC] CMD:%s", ch->channel, cmd);
+            AT_LOG_D("[AT:%d][SUCC] CMD:<<%s>>", ch->channel, cmd);
             result = AT_OK;
             break;
         }
@@ -95,20 +95,20 @@ static at_status_t send_and_wait(at_channel_t *ch, const char *cmd,
         }
 
         if (result == AT_OK) {
-            AT_LOG_D("[AT:%d][SUCC] CMD:{%s}", ch->channel, cmd);
+            AT_LOG_D("[AT:%d][SUCC] CMD:<<%s>>", ch->channel, cmd);
             break;
         } else if (result == AT_ERR_TIMEOUT) {
             if (i < config->retry - 1)
-                AT_LOG_W("[AT:%d][WARN][%hhu] CMD:{%s}  TIME OUT", ch->channel, i + 1, cmd);
+                AT_LOG_W("[AT:%d][WARN][%hhu] CMD:<<%s>>  TIME OUT", ch->channel, i + 1, cmd);
         } else {
             if (i < config->retry - 1)
-                AT_LOG_W("[AT:%d][WARN][%hhu] CMD:{%s}  RECV: %s", ch->channel, i + 1, cmd,
-                         ch->recv_buf);
+                AT_LOG_W("[AT:%d][WARN][%hhu] CMD:<<%s>>  RECV:<<%.*s>>", ch->channel, i + 1, cmd,
+                         (int)ch->rx_len, ch->recv_buf);
         }
     }
 
     if (result != AT_OK)
-        AT_LOG_E("[AT:%d][ERR] CMD:%s", ch->channel, cmd);
+        AT_LOG_E("[AT:%d][ERR] CMD:<<%s>>", ch->channel, cmd);
 
     return result;
 }
@@ -177,6 +177,47 @@ void at_session_unlock(uint8_t channel)
     at_port_unlock(channel);
 }
 
+/* 按序执行一组 AT 指令（原子事务，整段重试） */
+at_status_t at_cmd_seq_exec(uint8_t channel, const at_cmd_config_t *seq,
+                            uint8_t seq_len, uint8_t retry,
+                            uint8_t *failed_index)
+{
+    if (channel >= AT_CHANNEL_MAX || seq == NULL || seq_len == 0 || retry == 0)
+        return AT_ERR_PARAM;
+
+    at_status_t result = AT_ERR_GENERIC;
+    uint8_t     step   = 0;
+
+    at_session_lock(channel);
+
+    for (uint8_t attempt = 0; attempt < retry; attempt++) {
+        result = AT_OK;
+        for (step = 0; step < seq_len; step++) {
+            result = at_cmd_exec(channel, &seq[step]);
+            if (result != AT_OK)
+                break;
+        }
+        if (result == AT_OK)
+            break;
+
+        if (attempt + 1 < retry)
+            AT_LOG_W("[AT:%d][WARN][seq] attempt %u/%u, step %u failed",
+                     channel, (unsigned)(attempt + 1), (unsigned)retry,
+                     (unsigned)step);
+    }
+
+    at_session_unlock(channel);
+
+    if (failed_index)
+        *failed_index = (result == AT_OK) ? seq_len : step;
+
+    if (result != AT_OK)
+        AT_LOG_E("[AT:%d][ERR][seq] step %u failed after %u attempt(s)",
+                 channel, (unsigned)step, (unsigned)retry);
+
+    return result;
+}
+
 /* ════════════════════════════════════════════════════════════════
  *  数据接收 & URC
  * ════════════════════════════════════════════════════════════════ */
@@ -227,12 +268,12 @@ int16_t at_resp_param_get(const char *resp, uint16_t resp_len,
     if (resp == NULL || resp_len == 0 || out_buf == NULL || out_size == 0)
         return AT_ERR_PARAM;
 
-    /* 找到冒号 */
+    /* 先定位第一个冒号（模组响应常以 \r\n 开头，不把换行当搜索边界） */
     pos = 0;
-    while (pos < resp_len && resp[pos] != ':' && resp[pos] != '\r' && resp[pos] != '\n')
+    while (pos < resp_len && resp[pos] != ':')
         pos++;
 
-    if (pos >= resp_len || resp[pos] != ':')
+    if (pos >= resp_len)
         return AT_ERR_NOT_FOUND;
 
     /* 跳过冒号及后续空格 */

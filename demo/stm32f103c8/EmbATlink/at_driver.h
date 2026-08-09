@@ -1,7 +1,7 @@
 /**
  * @file    at_driver.h
- * @version v2.1
- * @date    2026-07-27
+ * @version v2.2
+ * @date    2026-08-09
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -117,6 +117,22 @@ void at_session_lock(uint8_t channel);
  */
 void at_session_unlock(uint8_t channel);
 
+/**
+ * @brief   按序执行一组 AT 指令（原子事务，整段重试）
+ * @param   [in]  channel:      通道号
+ * @param   [in]  seq:          指令序列（at_cmd_config_t 数组）
+ * @param   [in]  seq_len:      序列条数
+ * @param   [in]  retry:        整段重试次数（>=1）
+ * @param   [out] failed_index: 失败步骤下标（可 NULL；成功时为 seq_len）
+ * @retval  AT_OK:           整段成功
+ * @retval  AT_ERR_PARAM:    参数非法或通道未初始化
+ * @retval  其他:            最后一次尝试的失败码
+ * @note    每轮尝试都从第一条重新开始，函数内部自动使用递归锁。
+ */
+at_status_t at_cmd_seq_exec(uint8_t channel, const at_cmd_config_t *seq,
+                            uint8_t seq_len, uint8_t retry,
+                            uint8_t *failed_index);
+
 /* ════════════════════════════════════════════════════════════════
  *  数据接收 & URC
  * ════════════════════════════════════════════════════════════════ */
@@ -154,7 +170,7 @@ at_status_t at_urc_check(uint8_t channel, uint8_t urc_index);
  * @retval  >=0:               实际提取的字节数（不含 '\\0'）
  * @retval  AT_ERR_PARAM:      参数非法（NULL / 长度0 / out_size 不足）
  * @retval  AT_ERR_NOT_FOUND:  参数不存在（index 越界 / 响应无冒号 / 冒号后无内容）
- * @note    参数区以冒号后第一个非空字符开始，逗号分隔，\\r\\n 终止。
+ * @note    先定位第一个冒号，参数区以冒号后第一个非空字符开始，逗号分隔，\r\n 终止。
  *          双引号内的逗号不作为分隔符，支持 JSON / 字符串参数。
  *          提取时自动 trim 首尾空格，参数内容原样返回（含引号）。
  */

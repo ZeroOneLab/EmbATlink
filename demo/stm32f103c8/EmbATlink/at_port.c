@@ -1,7 +1,7 @@
 /**
  * @file    at_port.c
- * @version v2.1
- * @date    2026-07-27
+ * @version v2.2
+ * @date    2026-08-09
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
