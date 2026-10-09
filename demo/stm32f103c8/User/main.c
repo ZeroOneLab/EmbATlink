@@ -1,18 +1,22 @@
 /**
  * @file    main.c
  * @brief   EmbATlink Demo -- STM32F103C8  (USART1 模拟从机模组)
+ * @version v3.0
+ * @date    2026-10-08
  *
  * 硬件连接：
  *   PA9  -- USART1 TX  -> 串口助手 RX
- *   PA10 -- USART1 RX  ←  串口助手 TX
+ *   PA10 -- USART1 RX  <- 串口助手 TX
  *
  * 使用方式：
  *   1. 烧录后打开串口助手 (115200-8-N-1)
- *   2. MCU 自动发送 AT 指令，串口助手手动回复响应
- *   3. 串口助手可主动推送 URC 数据测试 URC 检测
+ *   2. 上电先打印一张"响应对照表"，8 个演示步骤会依次发命令，
+ *      按对照表在串口助手里逐条回复响应（每条指令等待 10 秒、最多试 2 次，
+ *      即单条命令给了约 20 秒操作时间），表里的 (CRLF) 表示回车换行
+ *   3. 8 步走完进入 URC 轮询，串口助手可随时推送 URC 数据测试记录队列
  *
- * 日志格式：[hh:mm:ss.ms] message
- *   所有日志自动带时间戳前缀，时间源为 SysTick 中断自增的 sys_tick_ms
+ * 日志格式：[hh:mm:ss.ms] message\r\n
+ *   日志自带时间戳前缀（时间源为 SysTick 中断自增的 sys_tick_ms）
  */
 
 #include "stm32f10x.h"
@@ -62,7 +66,7 @@ int fputc(int ch, FILE *f)
  *
  * 输出格式：[hh:mm:ss.ms] message\r\n
  * 时间源为 sys_tick_ms（SysTick 中断每 1ms 自增）。
- * 所有 printf 调用替换为此函数后，串口输出自动带时间戳。
+ * 所有 printf 调用替换为此函数后，串口输出自动带时间戳与换行。
  * 同时被 at_port.h 中的 AT_LOG_* 宏调用，驱动内部日志也带时间戳。
  */
 void log_printf(const char *fmt, ...)
@@ -150,51 +154,20 @@ static void usart1_init(uint32_t baudrate)
  *  AT Demo
  * ════════════════════════════════════════════════════════════════ */
 
-/* URC 关键字表 */
+/* URC 记录表下标（at_urc_get() 的 urc_index 参数即此枚举值） */
 enum {
     AT_URC_RECV = 0,     /* +RECV: 数据到达通知 */
     AT_URC_STAT,         /* +STAT: 状态变化通知 */
-    AT_URC_LAST,
 };
 
-static const char *at_urc_keys[AT_URC_LAST] = {
-    [AT_URC_RECV] = "+RECV:",
-    [AT_URC_STAT] = "+STAT:",
+/* URC 记录表（head + tail 收全才整条入队） */
+static const at_urc_key_t at_urc_keys[] = {
+    [AT_URC_RECV] = { "+RECV:", "\r\n" },
+    [AT_URC_STAT] = { "+STAT:", "\r\n" },
 };
 
-/* 接收缓冲区 */
-static uint8_t recv_buf[256];
-
-/**
- * @brief   消费缓冲区中指定 URC 关键字的所在行（逐行移除，不丢其他数据）
- * @param   key  URC 关键字字符串，如 "+RECV:"
- */
-static void consume_urc(const char *key)
-{
-    uint8_t *buf;
-    uint16_t len;
-    at_recv_get(0, &buf, &len);
-    if (len < 2) return;
-
-    /* 定位关键字位置 */
-    const char *p  = (const char *)buf;
-    const char *pos = strstr(p, key);
-    if (!pos) return;
-
-    uint16_t off = (uint16_t)(pos - p);
-
-    /* 找到行尾 \r\n */
-    uint16_t end = off;
-    while (end < len - 1 && !(buf[end] == '\r' && buf[end + 1] == '\n'))
-        end++;
-    if (end >= len - 1) return;
-
-    /* 打印该行内容（不含 \r\n） */
-    log_printf("[URC] %.*s", end - off, buf + off);
-
-    /* 仅移除该行，后续数据前移 */
-    at_recv_remove(0, off, (end + 2) - off);
-}
+static uint8_t recv_buf[256];   /* 命令与响应缓冲 */
+static uint8_t urc_buf[256];    /* URC 记录体缓冲 */
 
 int main(void)
 {
@@ -203,132 +176,197 @@ int main(void)
     SysTick_Config(SystemCoreClock / 1000);  /* 1ms 中断 */
     usart1_init(115200);
 
-    log_printf("+==========================================+");
-    log_printf("|    EmbATlink v2.2  |  STM32F103C8       |");
-    log_printf("|    USART1 PA9-PA10 @  115200 bps 		  |");
-    log_printf("|    github.com/ZeroOneLab/EmbATlink      |");
-    log_printf("+==========================================+");
+    log_printf("+===========================================+");
+    log_printf("|    EmbATlink v3.0  |  STM32F103C8         |");
+    log_printf("|    USART1 PA9-PA10 @  115200 bps          |");
+    log_printf("|    github.com/ZeroOneLab/EmbATlink        |");
+    log_printf("+===========================================+");
 
     log_printf("[BOOT] System Init OK");
+
+    /* ── 响应对照表 ── */
+    log_printf("+-----------------------------------------------------------+");
+    log_printf("| MCU sends                   | You reply (CRLF)            |");
+    log_printf("+-----------------------------------------------------------+");
+    log_printf("| AT                          | OK (CRLF)                   |");
+    log_printf("| ATE0                        | OK (CRLF)                   |");
+    log_printf("| AT+GETMODE                  | +MODE:1,2,3 (CRLF)          |");
+    log_printf("| AT+CPIN?                    | ERROR (CRLF)                |");
+    log_printf("| AT+PASSTHRU=5               | >  (no CRLF)                |");
+    log_printf("| AT+VERSION                  | any text (e.g. V3.0)        |");
+    log_printf("| 4 bytes (no CRLF)           | AT+BINECHO=4 (CRLF)         |");
+    log_printf("| AT+PASSTHRU=5               | CONNECT (CRLF)              |");
+    log_printf("| HELLO (no CRLF)             | (nothing)                   |");
+    log_printf("+-----------------------------------------------------------+");
+    log_printf("  (commands end with CRLF; rows marked no CRLF are raw data)");
+    log_printf("  (each command waits up to 10s for your reply, retried 2 times)");
 
     /* ── 通道注册（通道 0：绑定 USART1，后续所有 API 第一个参数 0 均指此通道） ── */
     at_channel_t at_cfg = {
         .recv_buf  = recv_buf,
         .recv_size = sizeof(recv_buf),
+        .urc_buf   = urc_buf,
+        .urc_size  = sizeof(urc_buf),
         .urc_keys  = at_urc_keys,
         .urc_count = sizeof(at_urc_keys) / sizeof(at_urc_keys[0]),
     };
-    at_channel_init(0, &at_cfg);
-    log_printf("[INIT] Channel 0 ready");
 
-    /* ── 自检 ── */
-    log_printf("[DEMO] AT -> OK\\r\\n");
+    if (at_channel_init(0, &at_cfg) != AT_OK)
+        log_printf("[INIT] Channel 0 FAIL");
+    else
+        log_printf("[INIT] Channel 0 ready");
+
+    /* ── 演示 1：发送 "AT"，期望 "OK" ── */
+    log_printf("\r\n");
+    log_printf("[DEMO] send \"AT\"  -> reply: OK(CRLF)");
     {
-		/* 通道 0，发送 "AT"，期望响应 "OK"，重试 5 次，轮询间隔 20ms，超时 3000ms */
-        if(at_cmd_exec(0, &(at_cmd_config_t){"AT", "OK", 5, 20, 3000}) != AT_OK)
-            log_printf("[DEMO] AT FAIL");
+        at_cmd_config_t cfg;
+
+        AT_STR_CMD_DEF(cfg, "AT", "OK", 2, 20, 10000);
+        if (at_cmd_exec(0, &cfg, NULL) != AT_OK)
+            log_printf("[DEMO] FAIL: no response");
     }
 
-    /* ── 演示 ATE0（关闭回显） ── */
-    log_printf("[DEMO] ATE0 -> OK\\r\\n");
+    /* ── 演示 2：命令行动态拼接（关闭回显） ── */
+    log_printf("\r\n");
+    log_printf("[DEMO] send \"ATE0\"  -> reply: OK(CRLF)");
     {
-        char cmd[32];
-        snprintf(cmd, sizeof(cmd), "ATE%d", 0);  /* "ATE0" */
-		/* 通道 0，发送 "ATE0"，期望响应 "OK"，重试 5 次，轮询间隔 20ms，超时 3000ms */
-        if(at_cmd_exec(0, &(at_cmd_config_t){cmd, "OK", 5, 20, 3000}) != AT_OK)
-            log_printf("[DEMO] ATE0 FAIL");
+        char cmd[16];
+        at_cmd_config_t cfg;
+
+        snprintf(cmd, sizeof(cmd), "ATE%d", 0);                  /* 拼出 "ATE0" */
+        AT_STR_CMD_DEF(cfg, cmd, "OK", 2, 20, 10000);
+        if (at_cmd_exec(0, &cfg, NULL) != AT_OK)
+            log_printf("[DEMO] FAIL: no response");
     }
 
-    /* ── 演示 AT+GETMODE（查询模式） ── */
-    log_printf("[DEMO] AT+GETMODE -> +MODE:0,1,2\\r\\n");
+    /* ── 演示 3：从响应中提取参数 ── */
+    log_printf("\r\n");
+    log_printf("[DEMO] send \"AT+GETMODE\"  -> reply: +MODE:1,2,3(CRLF)");
     {
-		/* 通道 0，发送 "AT+GETMODE"，期望响应 "+MODE:"，重试 5 次，轮询间隔 20ms，超时 3000ms */
-        if ( at_cmd_exec(0, &(at_cmd_config_t){"AT+GETMODE", "+MODE:", 5, 20, 3000})== AT_OK) {
-            uint8_t *resp;
-            uint16_t len;
-            at_recv_get(0, &resp, &len);
+        uint8_t resp_buf[64];
+        at_resp_t resp = { resp_buf, sizeof(resp_buf), 0 };
+        at_cmd_config_t cfg;
+        char param[8];
+        int  modes[3] = { -1, -1, -1 };                          /* 未取到保持 -1 */
 
-            char param[8];
-            int  modes[3];
-            for (int i = 0; i < 3; i++) {
-                if (at_resp_param_get((const char *)resp, len, i, param, sizeof(param)) > 0)
+        AT_STR_CMD_DEF(cfg, "AT+GETMODE", "+MODE:", 2, 20, 10000);
+        if (at_cmd_exec(0, &cfg, &resp) == AT_OK) {
+            /* 参数区定位到 "+MODE:" 所在行：resp 里可能还夹着别的行 */
+            for (uint8_t i = 0; i < 3; i++) {
+                if (at_resp_param_get(&resp, "+MODE:", i, param, sizeof(param)) > 0)
                     modes[i] = atoi(param);
             }
             log_printf("[DEMO] Modes: %d, %d, %d", modes[0], modes[1], modes[2]);
         } else {
-            log_printf("[DEMO] AT+GETMODE FAIL");
+            log_printf("[DEMO] FAIL: no +MODE response");
         }
     }
 
-    /* ── 演示 AT+VERSION（未知响应，expect 传 NULL，等待后读取全部内容） ── */
-    log_printf("[DEMO] AT+VERSION -> any response (v2.2)");
+    /* ── 演示 4：模组答了别的 -> AT_ERR_NO_MATCH（不是超时） ── */
+    log_printf("\r\n");
+    log_printf("[DEMO] send \"AT+CPIN?\"  -> reply: ERROR(CRLF)");
     {
-        /* 通道 0，发送 "AT+VERSION"，不匹配特定响应，等待 3000ms */
-        at_cmd_exec(0, &(at_cmd_config_t){"AT+VERSION", NULL, 1, 20, 3000});
+        uint8_t resp_buf[64];
+        at_resp_t resp = { resp_buf, sizeof(resp_buf), 0 };
+        at_cmd_config_t cfg;
 
-        /* 获取接收缓冲区，查看模组实际返回内容 */
-        uint8_t *resp;
-        uint16_t len;
-        at_recv_get(0, &resp, &len);
-        log_printf("[DEMO] Response: %.*s", len, resp);
+        AT_STR_CMD_DEF(cfg, "AT+CPIN?", "+CPIN:", 2, 20, 10000);
+        if (at_cmd_exec(0, &cfg, &resp) == AT_OK)
+            log_printf("[DEMO] OK: module replied +CPIN");
+        else
+            log_printf("[DEMO] Response: %.*s", (int)resp.len, (const char *)resp.buf);
     }
 
-    /* ── 演示 at_cmd_seq_exec（原子指令序列） ── */
-    log_printf("[DEMO] SEQ EXEC: 1.AT+PASSTHRU=x -> CONNECT\\r\\n");
-    log_printf("[DEMO] SEQ EXEC: 2.send data (no reply)");
+    /* ── 演示 5：等提示符（done_end = ">"，提示符后面没有 \r\n） ── */
+    log_printf("\r\n");
+    log_printf("[DEMO] send \"AT+PASSTHRU=5\"  -> reply: > (no CRLF)");
     {
-        /*
-         * 场景：一个逻辑操作需要多条 AT 指令按顺序执行，且中途不能被
-         * 其他指令打乱或插队（指令内容仅为示例，重点是"原子性"）：
-         *
-         *   步骤 1：AT+PASSTHRU=5  进入 5 字节透传模式（期望回复 CONNECT）
-         *   步骤 2：HELLO          发送透传数据（expect=NULL，仅发送）
-         *
-         * at_cmd_seq_exec 将这组指令视为一个原子事务，保证：
-         *   · 顺序 —— 步骤严格按序执行，不能打乱
-         *   · 插队防护 —— 整段自动持有会话锁，RTOS 下其他任务的
-         *                  AT 指令无法插入事务中途（否则会被模组
-         *                  误当作透传数据）
-         *   · 整段重试 —— 任一步失败，事务从步骤 1 重新开始，
-         *                  不会停留在"半截成功"状态
-         *
-         * 无需手动 at_session_lock/unlock，也无需外部再套重试循环。
-         */
-        char data[] = "HELLO";                                    /* 透传数据        */
-        char pass_cmd[32];
+        at_cmd_config_t cfg;
+
+        AT_STR_CMD(cfg, "AT+PASSTHRU=5", "\r\n", ">", ">", 2, 20, 10000);
+        if (at_cmd_exec(0, &cfg, NULL) != AT_OK)
+            log_printf("[DEMO] FAIL: no prompt");
+    }
+
+    /* ── 演示 6：未知响应（expect = NULL，固定等待后取回内容） ── */
+    log_printf("\r\n");
+    log_printf("[DEMO] send \"AT+VERSION\"  -> reply: any text (e.g. V3.0)");
+    {
+        uint8_t resp_buf[64];
+        at_resp_t resp = { resp_buf, sizeof(resp_buf), 0 };
+        at_cmd_config_t cfg;
+
+        AT_STR_SEND_DEF(cfg, "AT+VERSION", 10000);
+        at_cmd_exec(0, &cfg, &resp);
+        log_printf("[DEMO] Response: %.*s", (int)resp.len, (const char *)resp.buf);
+    }
+
+    /* ── 演示 7：定长数据主体（长度由调用方给，0x00 不截断） ── */
+    log_printf("\r\n");
+    log_printf("[DEMO] send 4 bytes  -> reply: AT+BINECHO=4(CRLF)");
+    {
+        const uint8_t payload[4] = { 0x01, 0x02, 0x00, 0x04 };
+        at_cmd_config_t cfg;
+
+        AT_BIN_CMD(cfg, payload, sizeof(payload), "", "AT+BINECHO=4", "\r\n", 2, 20, 10000);
+        if (at_cmd_exec(0, &cfg, NULL) != AT_OK)
+            log_printf("[DEMO] FAIL: echo not matched");
+    }
+
+    /* ── 演示 8：原子指令序列（整段自动加锁 + 整段重试） ──
+     *   步骤 1：AT+PASSTHRU=5  进入 5 字节透传模式（期望回复 CONNECT）
+     *   步骤 2：HELLO          发送透传数据（expect = NULL，只发不等）
+     */
+    log_printf("\r\n");
+    log_printf("[DEMO] SEQ: send \"AT+PASSTHRU=5\" -> reply: CONNECT(CRLF), then send \"HELLO\"");
+    {
+        const char *const data = "HELLO";                        /* 透传数据 */
+        char              pass_cmd[32];
+        at_cmd_config_t   seq[2];
+
         snprintf(pass_cmd, sizeof(pass_cmd), "AT+PASSTHRU=%d", (int)strlen(data));
 
-        at_cmd_config_t seq[] = {
-            {pass_cmd, "CONNECT", 1, 20, 3000},                   /* 步骤1：进入透传  */
-            {data,     NULL,     1, 20, 1000},                    /* 步骤2：发送数据  */
-        };
+        seq[0] = (at_cmd_config_t){ pass_cmd, (uint16_t)strlen(pass_cmd), "\r\n",
+                                    "CONNECT", "\r\n", 2, 20, 10000 };
+        /* 透传数据：expect 为 NULL，done_end 随之可为 NULL（收到多少回多少） */
+        seq[1] = (at_cmd_config_t){ data, (uint16_t)strlen(data), "",
+                                    NULL, NULL, 2, 20, 5000 };
 
         uint8_t failed_index = 0;
-        if (at_cmd_seq_exec(0, seq, 2, 3, &failed_index) == AT_OK) {
+        if (at_cmd_seq_exec(0, seq, 2, 3, &failed_index) == AT_OK)
             log_printf("[DEMO] SEQ EXEC OK: all steps done");
-        } else {
-            log_printf("[DEMO] SEQ EXEC FAIL: step %u failed (retried %u times)", failed_index, 3);
-        }
+        else
+            log_printf("[DEMO] SEQ EXEC FAIL: step %u failed (retried 3 times)",
+                       (unsigned)failed_index);
     }
 
-    /* ── 提示 URC 测试 ── */
-    log_printf("  URC Tests:\r\n");
-    log_printf("  +RECV:Hello\\r\\n                        -> data URC");
-    log_printf("  +STAT:0,1\\r\\n                          -> status URC");
-    log_printf("  +RECV:AAA\\r\\n+STAT:BBB\\r\\n+RECV:CCC\\r\\n   -> mixed URC");
+    /* ── URC 测试提示（8 步演示已跑完，进入 URC 轮询） ── */
+    log_printf("\r\n");
+    log_printf("  URC Tests:  (type these in the serial tool at any time)");
+    log_printf("  +RECV:Hello(CRLF)                               -> data URC");
+    log_printf("  +STAT:0,1(CRLF)                                 -> status URC, event=1");
+    log_printf("  +STAT:1,0(CRLF)                                 -> status URC, event=0");
+    log_printf("  +RECV:AAA(CRLF)+STAT:0,1(CRLF)+RECV:CCC(CRLF)   -> three records in a row");
 
     log_printf("[LOOP] Polling URC...");
-    at_recv_reset(0);
 
+    /* ── 主循环：取 URC 记录 ── */
     while (1) {
-        while (at_urc_check(0, AT_URC_RECV) == AT_OK)
-            consume_urc("+RECV:");
+        uint8_t  body[128];
+        uint16_t len;
 
-        while (at_urc_check(0, AT_URC_STAT) == AT_OK)
-            consume_urc("+STAT:");
+        /* +RECV: 数据到达通知 */
+        len = sizeof(body);
+        if (at_urc_get(0, AT_URC_RECV, body, &len) == AT_OK)
+            log_printf("[URC] idx:%d <<%s>>", AT_URC_RECV, (char *)body);
+
+        /* +STAT: 状态变化通知 */
+        len = sizeof(body);
+        if (at_urc_get(0, AT_URC_STAT, body, &len) == AT_OK)
+            log_printf("[URC] idx:%d <<%s>>", AT_URC_STAT, (char *)body);
 
         /* 等待 500ms 后继续检查 URC */
-        at_recv_reset(0);
-		delay_ms(500);
+        delay_ms(500);
     }
 }

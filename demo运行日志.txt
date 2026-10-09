@@ -1,0 +1,150 @@
+« [00:00:00.000]+===========================================+
+[00:00:00.005]|    EmbATlink v3.0  |  STM32F103C8         |
+[00:00:00.010]|    USART1 PA9-PA10 @  115200 bps          |
+[00:00:00.015]|    github.com/ZeroOneLab/EmbATlink        |
+[00:00:00.021]+===========================================+
+[00:00:00.026][BOOT] System Init OK
+[00:00:00.029]+-----------------------------------------------------------+
+[00:00:00.036]| MCU sends                   | You reply (CRLF)            |
+[00:00:00.042]+-----------------------------------------------------------+
+[00:00:00.049]| AT                          | OK (CRLF)                   |
+[00:00:00.056]| ATE0                        | OK (CRLF)                   |
+[00:00:00.063]| AT+GETMODE                  | +MODE:1,2,3 (CRLF)          |
+[00:00:00.069]| AT+CPIN?                    | ERROR (CRLF)                |
+[00:00:00.076]| AT+PASSTHRU=5               | >  (no CRLF)                |
+[00:00:00.083]| AT+VERSION                  | any text (e.g. V3.0)        |
+[00:00:00.089]| 4 bytes (no CRLF)           | AT+BINECHO=4 (CRLF)         |
+[00:00:00.096]| AT+PASSTHRU=5               | CONNECT (CRLF)              |
+[00:00:00.103]| HELLO (no CRLF)             | (nothing)                   |
+[00:00:00.109]+-----------------------------------------------------------+
+[00:00:00.116]  (commands end with CRLF; rows marked no CRLF are raw data)
+[00:00:00.123]  (each command waits up to 10s for your reply, retried 2 times)
+[00:00:00.130][INIT] Channel 0 ready
+[00:00:00.133]
+
+[00:00:00.135][DEMO] send "AT"  -> reply: OK(CRLF)
+AT
+» OK
+« [00:00:02.320][AT:0][SUCC] TX len:2 <<AT>>
+[00:00:02.323]
+
+[00:00:02.325][DEMO] send "ATE0"  -> reply: OK(CRLF)
+ATE0
+» OK
+« [00:00:03.210][AT:0][SUCC] TX len:4 <<ATE0>>
+[00:00:03.214]
+
+[00:00:03.215][DEMO] send "AT+GETMODE"  -> reply: +MODE:1,2,3(CRLF)
+AT+GETMODE
+» +MODE:1,2,3
+« [00:00:04.602][AT:0][SUCC] TX len:10 <<AT+GETMODE>>
+[00:00:04.606][DEMO] Modes: 1, 2, 3
+[00:00:04.610]
+
+[00:00:04.611][DEMO] send "AT+CPIN?"  -> reply: ERROR(CRLF)
+AT+CPIN?
+» ERROR
+» ERROR
+» ERROR
+« [00:00:14.617][AT:0][1/2] TX len:8 <<AT+CPIN?>>  NO MATCH  RX len:21 <<ERROR
+ERROR
+ERROR
+>>
+AT+CPIN?
+» ERROR
+» ERROR
+» ERROR
+» ERROR
+» ERROR
+» ERROR
+» ERROR
+« [00:00:24.626][AT:0][2/2] TX len:8 <<AT+CPIN?>>  NO MATCH  RX len:49 <<ERROR
+ERROR
+ERROR
+ERROR
+ERROR
+ERROR
+ERROR
+>>
+[00:00:24.637][AT:0] command failed after 2 attempt(s): NO MATCH
+[00:00:24.643][DEMO] Response: ERROR
+ERROR
+ERROR
+ERROR
+ERROR
+ERROR
+ERROR
+
+[00:00:24.650]
+
+[00:00:24.651][DEMO] send "AT+PASSTHRU=5"  -> reply: > (no CRLF)
+AT+PASSTHRU=5
+» >
+« [00:00:28.179][AT:0][SUCC] TX len:13 <<AT+PASSTHRU=5>>
+[00:00:28.184]
+
+[00:00:28.185][DEMO] send "AT+VERSION"  -> reply: any text (e.g. V3.0)
+AT+VERSION
+» V3.0
+« [00:00:38.193][AT:0][SUCC] TX len:10 <<AT+VERSION>>
+[00:00:38.197][DEMO] Response: V3.0
+[00:00:38.201]
+
+[00:00:38.202][DEMO] send 4 bytes  -> reply: AT+BINECHO=4(CRLF)
+
+» AT+BINECHO=4
+« [00:00:41.248][AT:0][SUCC] TX len:4 <<>>
+[00:00:41.251]
+
+[00:00:41.253][DEMO] SEQ: send "AT+PASSTHRU=5" -> reply: CONNECT(CRLF), then send "HELLO"
+AT+PASSTHRU=5
+» CONNECT
+« [00:00:44.402][AT:0][SUCC] TX len:13 <<AT+PASSTHRU=5>>
+HELLO[00:00:49.407][AT:0][SUCC] TX len:5 <<HELLO>>
+[00:00:49.411][DEMO] SEQ EXEC OK: all steps done
+[00:00:49.415]
+
+[00:00:49.417]  URC Tests:  (type these in the serial tool at any time)
+[00:00:49.423]  +RECV:Hello(CRLF)                               -> data URC
+[00:00:49.430]  +STAT:0,1(CRLF)                                 -> status URC, event=1
+[00:00:49.438]  +STAT:1,0(CRLF)                                 -> status URC, event=0
+[00:00:49.446]  +RECV:AAA(CRLF)+STAT:0,1(CRLF)+RECV:CCC(CRLF)   -> three records in a row
+[00:00:49.454][LOOP] Polling URC...
+» +RECV:Hello
+« [00:00:51.457][URC] idx:0 <<Hello>>
+» +RECV:Hello
+» +RECV:Hello
+» +RECV:Hello
+« [00:00:51.960][URC] idx:0 <<Hello>>
+[00:00:52.463][URC] idx:0 <<Hello>>
+[00:00:52.966][URC] idx:0 <<Hello>>
+» +RECV:Hello
+» +RECV:Hello
+« [00:00:54.469][URC] idx:0 <<Hello>>
+» +RECV:Hello
+» +RECV:Hello
+» +RECV:Hello
+» +RECV:Hello
+« [00:00:54.972][URC] idx:0 <<Hello>>
+» +RECV:Hello
+» +RECV:Hello
+» +RECV:Hello
+« [00:00:55.475][URC] idx:0 <<Hello>>
+[00:00:55.978][URC] idx:0 <<Hello>>
+[00:00:56.481][URC] idx:0 <<Hello>>
+[00:00:56.984][URC] idx:0 <<Hello>>
+[00:00:57.487][URC] idx:0 <<Hello>>
+[00:00:57.990][URC] idx:0 <<Hello>>
+[00:00:58.493][URC] idx:0 <<Hello>>
+» +RECV:AAA
++STAT:0,1
++RECV:CCC
+« [00:01:06.256][URC] idx:0 <<AAA>>
+[00:01:06.259][URC] idx:1 <<0,1>>
+[00:01:06.262][URC] idx:0 <<CCC>>
+» +RECV:AAA
++STAT:0,1
++RECV:CCC
+« [00:01:09.467][URC] idx:0 <<AAA>>
+[00:01:09.470][URC] idx:1 <<0,1>>
+[00:01:09.473][URC] idx:0 <<CCC>>

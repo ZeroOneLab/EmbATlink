@@ -1,7 +1,7 @@
 /**
  * @file    at_port.h
- * @version v2.2
- * @date    2026-08-09
+ * @version v3.0
+ * @date    2026-10-08
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -36,12 +36,11 @@
 /** 最大 AT 通道数 */
 #define AT_CHANNEL_MAX 1
 
-
+/** 由 main.c 提供的带时间戳日志打印（[hh:mm:ss.ms] 前缀） */
 void log_printf(const char *fmt, ...);
 
-/** 驱动日志宏 — 自动带时间戳前缀 */
+/** 驱动日志宏 — 转发到 log_printf，驱动内部日志也带时间戳 */
 #define AT_LOG_D(...)   log_printf(__VA_ARGS__)
-#define AT_LOG_I(...)   log_printf(__VA_ARGS__)
 #define AT_LOG_W(...)   log_printf(__VA_ARGS__)
 #define AT_LOG_E(...)   log_printf(__VA_ARGS__)
 
@@ -83,31 +82,20 @@ void at_port_lock(uint8_t channel);
 void at_port_unlock(uint8_t channel);
 
 /**
- * @brief   通过通道发送数据
+ * @brief   通过通道发送一段数据（阻塞至最后一位出线）
  * @param   [in] channel:  通道号
- * @param   [in] buf:      发送数据指针
+ * @param   [in] buf:      发送数据指针（命令行或定长数据）
  * @param   [in] len:      发送长度
- * @retval  无
+ * @retval  0:     成功
+ * @retval  非0:   底层发送失败（通道未绑定 / TXE·TC 等待超时）
+ * @note    返回前必须等 TC（最后一位真正出线）：驱动把一条指令拆成两段发送
+ *          （主体 + 尾部），中间存在半行停顿会让部分模组产生异常响应。
+ *
+ * @note    v3.0 起，行尾与响应结束判定不再由端口层定制：
+ *          · 命令行尾 —— 由 at_cmd_config_t.suffix 显式声明（通常传 "\r\n"）
+ *          · 响应结束 —— 由 at_cmd_config_t.done_end 显式声明（如 "\r\n"、">"）
+ *          因此 v2.x 的 at_port_send_line_ending() / at_port_recv_done() 已删除。
  */
-void at_port_send(uint8_t channel, const char *buf, uint16_t len);
-
-/**
- * @brief   发送 AT 命令行尾符（按通道可定制）
- * @param   [in] channel:  通道号
- * @note    默认 \\r\\n；不同模组可通过 switch-case 扩展（如 \\r 等）
- *          内部直接调用 at_port_send，无需 driver 层二次发送。
- */
-void at_port_send_line_ending(uint8_t channel);
-
-/**
- * @brief   检测 AT 响应行是否接收完成（按通道可定制）
- * @param   [in] channel:  通道号
- * @param   [in] buf:      接收缓冲区
- * @param   [in] len:      当前已接收长度
- * @retval  1  接收完成（完整行或 '>' 提示符）
- * @retval  0  未完成
- * @note    默认判定：'\\r\\n' 结尾 或 '>' 开头。不同模块可通过 channel 扩展。
- */
-uint8_t at_port_recv_done(uint8_t channel, const char *buf, uint16_t len);
+int at_port_send(uint8_t channel, const void *buf, uint16_t len);
 
 #endif

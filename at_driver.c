@@ -1,7 +1,7 @@
 /**
  * @file    at_driver.c
- * @version v2.2
- * @date    2026-08-09
+ * @version v3.0
+ * @date    2026-10-08
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -30,140 +30,231 @@
 #include "at_driver.h"
 
 #include <stddef.h>
-#include <stdio.h>
 #include <string.h>
 
-static at_channel_t s_at_channels[AT_CHANNEL_MAX];
+/* 每通道运行态（文件内静态） */
+typedef struct {
+    at_channel_t      cfg;        /**< 通道配置                              */
+    volatile uint16_t rx_len;     /**< cmd 缓存写指针                        */
+    volatile uint8_t  overflow;   /**< cmd 缓存溢出标志                      */
+    uint16_t          scan;       /**< URC 扫描进度                          */
+    uint16_t          urc_len;    /**< URC 缓存已用字节数                     */
+} at_rt_t;
 
-/* ── 工具函数 ── */
+static at_rt_t s_rt[AT_CHANNEL_MAX];
 
-/* 在指定长度缓冲区中搜索子串 */
-static char *mem_strstr(const char *haystack, uint16_t haystack_len, const char *needle)
+/* 取运行态指针 rt；通道号越界直接返回 AT_ERR_PARAM */
+#define AT_CH_GET(channel)                                        \
+    if ((channel) >= AT_CHANNEL_MAX)                              \
+        return AT_ERR_PARAM;                                      \
+    at_rt_t *rt = &s_rt[(channel)]
+
+/* ==================== 工具函数 ==================== */
+
+/* 正向查找子串（缓冲无需 '\0' 结尾） */
+char *at_buf_strstr(const uint8_t *buf, uint16_t buf_len, const char *key)
 {
-    size_t needle_len = strlen(needle);
-    if (needle_len == 0 || haystack_len < (uint16_t)needle_len)
+    size_t key_len = strlen(key);
+
+    if (buf == NULL || key_len == 0 || buf_len < (uint16_t)key_len)
         return NULL;
 
-    uint16_t search_len = haystack_len - (uint16_t)needle_len + 1;
+    uint16_t search_len = (uint16_t)(buf_len - (uint16_t)key_len + 1);
     for (uint16_t i = 0; i < search_len; i++) {
-        if (memcmp(haystack + i, needle, needle_len) == 0)
-            return (char *)(haystack + i);
+        if (memcmp(buf + i, key, key_len) == 0)
+            return (char *)(buf + i);
     }
     return NULL;
 }
 
-/* 发送命令行并阻塞等待响应（支持重试） */
-static at_status_t send_and_wait(at_channel_t *ch, const char *cmd,
-                                 const at_cmd_config_t *config)
+/* 反向查找子串，返回最后一个匹配 */
+static char *at_buf_rstrstr(const uint8_t *buf, uint16_t buf_len, const char *key)
 {
-    at_status_t result = AT_ERR_TIMEOUT;
+    size_t key_len = strlen(key);
 
-    if (ch->recv_buf == NULL)
-        return AT_ERR_NO_BUFFER;
+    if (buf == NULL || key_len == 0 || buf_len < (uint16_t)key_len)
+        return NULL;
 
-    for (uint8_t i = 0; i < config->retry; i++) {
-        at_recv_reset(ch->channel);
-
-        at_port_send(ch->channel, cmd, strlen(cmd));
-        at_port_send_line_ending(ch->channel);
-
-        if (config->expect == NULL) {
-            at_port_delay_ms(config->timeout_ms);
-            AT_LOG_D("[AT:%d][SUCC] CMD:<<%s>>", ch->channel, cmd);
-            result = AT_OK;
-            break;
-        }
-
-        result = AT_ERR_TIMEOUT;
-        uint32_t start_ms = at_port_get_tick_ms();
-
-        /* 轮询等待 ISR 通过 at_recv_push 写入的数据 */
-        while (at_port_get_tick_ms() - start_ms <= config->timeout_ms) {
-            at_port_delay_ms(config->poll_ms);
-
-            /* 行完成 → 匹配期望关键字 */
-            if (!at_port_recv_done(ch->channel, (const char *)ch->recv_buf, ch->rx_len))
-                continue;
-
-            if (mem_strstr((const char *)ch->recv_buf, ch->rx_len, config->expect) != NULL) {
-                result = AT_OK;
-                break;
-            }
-
-            /* 本行不匹配，继续接收下一行（AT 响应可能多行） */
-            result = AT_ERR_NO_MATCH;
-        }
-
-        if (result == AT_OK) {
-            AT_LOG_D("[AT:%d][SUCC] CMD:<<%s>>", ch->channel, cmd);
-            break;
-        } else if (result == AT_ERR_TIMEOUT) {
-            if (i < config->retry - 1)
-                AT_LOG_W("[AT:%d][WARN][%hhu] CMD:<<%s>>  TIME OUT", ch->channel, i + 1, cmd);
-        } else {
-            if (i < config->retry - 1)
-                AT_LOG_W("[AT:%d][WARN][%hhu] CMD:<<%s>>  RECV:<<%.*s>>", ch->channel, i + 1, cmd,
-                         (int)ch->rx_len, ch->recv_buf);
-        }
+    for (uint16_t i = (uint16_t)(buf_len - (uint16_t)key_len + 1u); i > 0u; i--) {
+        if (memcmp(buf + i - 1u, key, key_len) == 0)
+            return (char *)(buf + i - 1u);
     }
-
-    if (result != AT_OK)
-        AT_LOG_E("[AT:%d][ERR] CMD:<<%s>>", ch->channel, cmd);
-
-    return result;
+    return NULL;
 }
 
-/* ════════════════════════════════════════════════════════════════
- *  初始化
- * ════════════════════════════════════════════════════════════════ */
+/* ==================== URC 缓存（单游标 FIFO） ==================== */
 
-/* 初始化 AT 通道：注册 buf / URC */
+/* 记录头长度：1 字节表项下标 + 2 字节记录体长度 */
+#define URC_HDR 3u
+
+/* 追加一条记录；满了先丢最旧；返回 0 表示本条被放弃 */
+static uint8_t at_urc_push(uint8_t channel, uint8_t idx, const uint8_t *body,
+                           uint16_t body_len)
+{
+    at_rt_t *r   = &s_rt[channel];
+    uint16_t rec = (uint16_t)(body_len + URC_HDR);
+    uint16_t put;
+
+    if (rec > r->cfg.urc_size) {
+        AT_LOG_W("[AT:%d] URC body %u exceeds cache %u, record dropped",
+                 channel, (unsigned)body_len, (unsigned)r->cfg.urc_size);
+        return 0u;                           /* 单条超过整个缓存 */
+    }
+
+    while ((uint32_t)r->urc_len + rec > r->cfg.urc_size) {
+        uint16_t old;
+
+        /* 丢最旧记录（其后内容前移） */
+        old = (uint16_t)(r->cfg.urc_buf[1] | ((uint16_t)r->cfg.urc_buf[2] << 8));
+        memmove(r->cfg.urc_buf, r->cfg.urc_buf + URC_HDR + old,
+                (size_t)(r->urc_len - URC_HDR - old));
+        r->urc_len = (uint16_t)(r->urc_len - URC_HDR - old);
+        AT_LOG_W("[AT:%d] URC cache full, drop oldest record", channel);
+    }
+
+    put = r->urc_len;                        /* 追加到队尾，不能覆盖已有记录 */
+
+    r->cfg.urc_buf[put]     = idx;           /* 记录头 */
+    r->cfg.urc_buf[put + 1] = (uint8_t)(body_len & 0xFFu);
+    r->cfg.urc_buf[put + 2] = (uint8_t)(body_len >> 8);
+    memcpy(r->cfg.urc_buf + put + URC_HDR, body, body_len);
+    r->urc_len = (uint16_t)(r->urc_len + rec);
+
+    return 1u;
+}
+
+/* 把 cmd 缓存里已收全的 URC 记录搬进 URC 缓存 */
+static void at_urc_harvest(uint8_t channel)
+{
+    at_rt_t            *r   = &s_rt[channel];
+    const at_channel_t *cfg = &r->cfg;
+    uint16_t            pos = r->scan;
+    uint16_t            end = r->rx_len;
+
+    if (cfg->recv_buf == NULL || cfg->urc_buf == NULL || cfg->urc_keys == NULL)
+        return;
+    if (pos > end)
+        pos = 0;                             /* 写指针归零：进度回退 */
+    r->scan = pos;
+
+    while (pos < end) {
+        const char *head;
+        const char *tail;
+        char       *p;
+        uint8_t     idx;
+        size_t      hlen = 0;
+        uint16_t    body_at;
+        uint16_t    body_end;
+
+        for (idx = 0; idx < cfg->urc_count; idx++) {   /* 找记录头 */
+            head = cfg->urc_keys[idx].head;
+
+            if (cfg->recv_buf[pos] != (uint8_t)head[0])
+                continue;                    /* 首字节不符 */
+            hlen = strlen(head);
+            if ((size_t)(end - pos) < hlen)
+                continue;
+            if (memcmp(cfg->recv_buf + pos, head, hlen) == 0)
+                break;
+        }
+        if (idx == cfg->urc_count) {         /* 非记录头：后移一字节 */
+            pos++;
+            r->scan = pos;
+            continue;
+        }
+
+        /* 表头之后的第一个记录尾即本记录结束 */
+        tail    = cfg->urc_keys[idx].tail;
+        body_at = (uint16_t)(pos + hlen);
+        p       = at_buf_strstr(cfg->recv_buf + body_at,
+                                (uint16_t)(end - body_at), tail);
+        if (p == NULL) {
+            r->scan = pos;                   /* 尾未到齐：等下一批 */
+            return;
+        }
+
+        body_end = (uint16_t)(p - (char *)cfg->recv_buf);
+
+        /* 超长记录入队失败：跳过整条 */
+        (void)at_urc_push(channel, idx, cfg->recv_buf + body_at,
+                          (uint16_t)(body_end - body_at));
+
+        pos = (uint16_t)(body_end + strlen(tail));   /* 越过整条记录 */
+        r->scan = pos;
+    }
+}
+
+/* 取本次响应并判定 expect；resp 非空时拷出响应区，返回 0 未收全 / 1 未命中 / 2 命中 */
+static uint8_t at_resp_take(const at_rt_t *r, const at_cmd_config_t *config,
+                            at_resp_t *resp)
+{
+    uint16_t len  = r->rx_len;
+    size_t   dlen = (config->done_end != NULL) ? strlen(config->done_end) : 0u;
+    char    *end  = (len > 0u && dlen > 0u)
+                        ? at_buf_rstrstr(r->cfg.recv_buf, len, config->done_end)
+                        : NULL;
+    uint16_t n    = len;
+
+    /* 响应区 = cmd 缓存起点到最后一个结束符末尾；结束符未到则取已收全部 */
+    if (end != NULL)
+        n = (uint16_t)((uint16_t)(end - (char *)r->cfg.recv_buf) +
+                       (uint16_t)dlen);
+
+    if (resp != NULL && resp->buf != NULL) {
+        uint16_t room = (uint16_t)(resp->size - 1u);
+        uint16_t cpy  = (n < room) ? n : room;
+
+        if (cpy > 0u)
+            memcpy(resp->buf, r->cfg.recv_buf, cpy);
+        resp->buf[cpy] = '\0';
+        resp->len      = cpy;
+    }
+
+    if (end == NULL || config->expect == NULL)
+        return 0u;                           /* expect 为 NULL：不判定 */
+
+    return (at_buf_strstr(r->cfg.recv_buf, n, config->expect) != NULL) ? 2u : 1u;
+}
+
+/* ==================== 初始化 ==================== */
+
+/* 初始化 AT 通道 */
 at_status_t at_channel_init(uint8_t channel, const at_channel_t *cfg)
 {
     if (channel >= AT_CHANNEL_MAX || cfg == NULL)
         return AT_ERR_PARAM;
-    if (cfg->recv_buf == NULL)
+    if (cfg->recv_buf == NULL || cfg->recv_size == 0)
         return AT_ERR_PARAM;
+    if ((cfg->urc_keys == NULL) != (cfg->urc_buf == NULL))
+        return AT_ERR_PARAM;                 /* URC 两项同进同出 */
 
-    at_channel_t *ch = &s_at_channels[channel];
+    if (cfg->urc_keys != NULL) {
+        if (cfg->urc_size < 4u || cfg->urc_count == 0)
+            return AT_ERR_PARAM;
 
-    /* 先清零再拷贝，防止 cfg 未完全初始化导致残留 */
-    memset(ch, 0, sizeof(at_channel_t));
-    memcpy(ch, cfg, sizeof(at_channel_t));
-    ch->channel = channel;
-    ch->rx_len  = 0;
+        for (uint8_t i = 0; i < cfg->urc_count; i++) {
+            if (cfg->urc_keys[i].head == NULL || cfg->urc_keys[i].head[0] == '\0')
+                return AT_ERR_PARAM;
+            if (cfg->urc_keys[i].tail == NULL || cfg->urc_keys[i].tail[0] == '\0')
+                return AT_ERR_PARAM;
+        }
+    }
+
+    at_rt_t *rt = &s_rt[channel];
+
+    memset(rt, 0, sizeof(at_rt_t));
+    rt->cfg = *cfg;                          /* 配置整体拷贝，入参之后可释放 */
 
     memset(cfg->recv_buf, 0, cfg->recv_size);
+    if (cfg->urc_buf != NULL)
+        memset(cfg->urc_buf, 0, cfg->urc_size);
 
     at_port_init(channel);
 
     return AT_OK;
 }
 
-/* ════════════════════════════════════════════════════════════════
- *  指令收发（核心）
- * ════════════════════════════════════════════════════════════════ */
-
-/* 发送完整 AT 命令行并等待响应 */
-at_status_t at_cmd_exec(uint8_t channel, const at_cmd_config_t *config)
-{
-    if (channel >= AT_CHANNEL_MAX)
-        return AT_ERR_PARAM;
-
-    at_channel_t *ch = &s_at_channels[channel];
-
-    if (ch->recv_buf == NULL)
-        return AT_ERR_NO_BUFFER;
-    if (config == NULL || config->cmd == NULL)
-        return AT_ERR_PARAM;
-
-    at_status_t ret;
-
-    at_port_lock(channel);
-    ret = send_and_wait(ch, config->cmd, config);
-    at_port_unlock(channel);
-    return ret;
-}
+/* ==================== 指令收发 ==================== */
 
 /* 开启 AT 会话锁 */
 void at_session_lock(uint8_t channel)
@@ -193,7 +284,7 @@ at_status_t at_cmd_seq_exec(uint8_t channel, const at_cmd_config_t *seq,
     for (uint8_t attempt = 0; attempt < retry; attempt++) {
         result = AT_OK;
         for (step = 0; step < seq_len; step++) {
-            result = at_cmd_exec(channel, &seq[step]);
+            result = at_cmd_exec(channel, &seq[step], NULL);
             if (result != AT_OK)
                 break;
         }
@@ -218,191 +309,323 @@ at_status_t at_cmd_seq_exec(uint8_t channel, const at_cmd_config_t *seq,
     return result;
 }
 
-/* ════════════════════════════════════════════════════════════════
- *  数据接收 & URC
- * ════════════════════════════════════════════════════════════════ */
-
-/* 向通道注入接收数据（ISR / 轮询 / DMA 回调均可调用） */
-at_status_t at_recv_push(uint8_t channel, const uint8_t *data, uint16_t len)
+/* 发送指令并阻塞等待响应 */
+at_status_t at_cmd_exec(uint8_t channel, const at_cmd_config_t *config,
+                        at_resp_t *resp)
 {
-    at_channel_t *ch = &s_at_channels[channel];
+    at_status_t result = AT_ERR_TIMEOUT;
+    uint16_t    attempt;
 
-    if (ch->recv_buf == NULL || data == NULL)
+    AT_CH_GET(channel);
+
+    if (rt->cfg.recv_buf == NULL)
         return AT_ERR_NO_BUFFER;
+    if (config == NULL || config->cmd == NULL)
+        return AT_ERR_PARAM;
+    if (config->cmd_len == 0 || config->suffix == NULL)
+        return AT_ERR_PARAM;
+    if (config->expect != NULL &&
+        (config->done_end == NULL || config->done_end[0] == '\0'))
+        return AT_ERR_PARAM;                 /* expect 非空时才需要 done_end */
+    if (config->retry == 0)
+        return AT_ERR_PARAM;
+    if (resp != NULL && (resp->buf == NULL || resp->size < 2u))
+        return AT_ERR_PARAM;                 /* 需留出结尾 '\0' 的余量 */
 
-    if (ch->rx_len + len > ch->recv_size) {
-        AT_LOG_E("[AT:%d] RX OVERFLOW! (%u + %u > %u)",
-                 channel, ch->rx_len, len, ch->recv_size);
-        return AT_ERR_BUF_FULL;
+    if (resp != NULL)
+        resp->len = resp->buf[0] = '\0';
+
+    const char *cmd_text = (const char *)config->cmd;
+    uint16_t    text_len = config->cmd_len;
+    const char *why      = NULL;
+
+    at_port_lock(channel);
+
+    for (attempt = 0; attempt < config->retry; attempt++) {
+        uint32_t start_ms;
+        uint8_t  m;
+
+        at_urc_harvest(channel);             /* 先收已到齐的 URC */
+
+        rt->rx_len   = 0;                    /* 清空 cmd 缓存 */
+        rt->overflow = 0u;
+        rt->scan     = 0;                    /* 扫描进度复位 */
+
+        /* 第一段：命令主体 */
+        if (at_port_send(channel, config->cmd, config->cmd_len) != 0) {
+            result = AT_ERR_IO;
+            why    = "SEND FAILED";
+            break;
+        }
+
+        /* 第二段：尾部（"" 表示不发） */
+        if (config->suffix[0] != '\0' &&
+            at_port_send(channel, config->suffix,
+                         (uint16_t)strlen(config->suffix)) != 0) {
+            result = AT_ERR_IO;
+            why    = "SEND FAILED";
+            break;
+        }
+
+        /* 只发不等：固定等待后取回内容 */
+        if (config->expect == NULL) {
+            at_port_delay_ms(config->timeout_ms);
+            at_urc_harvest(channel);
+            (void)at_resp_take(rt, config, resp);
+            result = AT_OK;
+            break;
+        }
+
+        /* 等待响应 */
+        start_ms = at_port_get_tick_ms();
+        for (;;) {
+            at_urc_harvest(channel);
+            m = at_resp_take(rt, config, resp);
+
+            if (rt->overflow) {
+                result = AT_ERR_BUF_FULL;
+                break;
+            }
+            if (m == 2u) {
+                result = AT_OK;
+                break;
+            }
+            if ((int32_t)(at_port_get_tick_ms() - start_ms) >=
+                (int32_t)config->timeout_ms) {
+                result = (m == 1u) ? AT_ERR_NO_MATCH : AT_ERR_TIMEOUT;
+                break;
+            }
+
+            at_port_delay_ms(config->poll_ms);
+        }
+
+        if (result == AT_OK)
+            break;
+
+        /* 失败：原因与收发内容 */
+        why = (result == AT_ERR_BUF_FULL) ? "RX OVERFLOW, RESPONSE LOST"
+              : (result == AT_ERR_TIMEOUT)  ? "TIME OUT"
+                                            : "NO MATCH";
+
+        AT_LOG_W("[AT:%d][%u/%u] TX len:%u <<%.*s>>  %s  RX len:%u <<%.*s>>",
+                 channel, (unsigned)(attempt + 1u), (unsigned)config->retry,
+                 (unsigned)text_len, (int)text_len, cmd_text, why,
+                 (unsigned)rt->rx_len, (int)rt->rx_len,
+                 (const char *)rt->cfg.recv_buf);
     }
 
-    memcpy(ch->recv_buf + ch->rx_len, data, len);
-    ch->rx_len += len;
-    
+    if (result == AT_OK)
+        AT_LOG_D("[AT:%d][SUCC] TX len:%u <<%.*s>>", channel,
+                 (unsigned)text_len, (int)text_len, cmd_text);
+    else
+        AT_LOG_E("[AT:%d] command failed after %u attempt(s): %s", channel,
+                 (unsigned)config->retry, why);
+
+    at_port_unlock(channel);
+    return result;
+}
+
+/* ==================== 数据接收 & URC ==================== */
+
+/* 追加接收数据；放不下时清零并置溢出标志 */
+at_status_t at_recv_push(uint8_t channel, const uint8_t *data, uint16_t len)
+{
+    AT_CH_GET(channel);
+
+    if (rt->cfg.recv_buf == NULL)
+        return AT_ERR_NO_BUFFER;
+    if (len == 0)
+        return AT_OK;
+    if (data == NULL || len > rt->cfg.recv_size)
+        return AT_ERR_PARAM;
+
+    if ((uint32_t)rt->rx_len + len > rt->cfg.recv_size) {
+        rt->rx_len   = 0;                    /* 放不下：整区重来 */
+        rt->overflow = 1u;
+    }
+
+    memcpy(rt->cfg.recv_buf + rt->rx_len, data, len);
+    rt->rx_len = (uint16_t)(rt->rx_len + len);
+
     return AT_OK;
 }
 
-/* 检测指定 URC 关键字（只读，数据已通过 at_recv_push 写入） */
-at_status_t at_urc_check(uint8_t channel, uint8_t urc_index)
+/* 取一条指定表项的 URC 记录；size 入为 buf 容量，出为记录体长度 */
+at_status_t at_urc_get(uint8_t channel, uint8_t urc_index, uint8_t *buf,
+                       uint16_t *size)
 {
-    at_channel_t *ch = &s_at_channels[channel];
+    at_status_t status = AT_ERR_NOT_FOUND;
+    uint16_t    off;
+    uint16_t    room;
 
-    if (ch->recv_buf == NULL || urc_index >= ch->urc_count)
-        return AT_ERR_NO_MATCH;
+    AT_CH_GET(channel);
 
-    uint16_t recv_len = ch->rx_len;
-    if (recv_len > 0 && mem_strstr((const char *)ch->recv_buf, recv_len, ch->urc_keys[urc_index]) != NULL)
-        return AT_OK;
-
-    return AT_ERR_NO_MATCH;
-}
-
-/* 从 AT 响应中提取第 N 个逗号分隔参数 */
-int16_t at_resp_param_get(const char *resp, uint16_t resp_len,
-                          uint8_t index,
-                          char *out_buf, uint16_t out_size)
-{
-    uint16_t pos, start, end, param_len;
-    uint8_t  current, in_quote;
-
-    if (resp == NULL || resp_len == 0 || out_buf == NULL || out_size == 0)
+    if (buf == NULL || size == NULL || *size == 0u)
+        return AT_ERR_PARAM;
+    if (rt->cfg.urc_buf == NULL || rt->cfg.urc_count == 0)
+        return AT_ERR_NOT_FOUND;             /* 通道未启用 URC */
+    if (urc_index >= rt->cfg.urc_count)
         return AT_ERR_PARAM;
 
-    /* 先定位第一个冒号（模组响应常以 \r\n 开头，不把换行当搜索边界） */
-    pos = 0;
-    while (pos < resp_len && resp[pos] != ':')
-        pos++;
+    room = *size;
 
-    if (pos >= resp_len)
-        return AT_ERR_NOT_FOUND;
+    at_port_lock(channel);
+    at_urc_harvest(channel);                 /* 先收已到齐的 URC */
 
-    /* 跳过冒号及后续空格 */
-    pos++;
-    while (pos < resp_len && resp[pos] == ' ')
-        pos++;
+    for (off = 0u; (uint16_t)(rt->urc_len - off) >= URC_HDR; ) {
+        uint16_t body_len = (uint16_t)(rt->cfg.urc_buf[off + 1u] |
+                                       ((uint16_t)rt->cfg.urc_buf[off + 2u] << 8));
+        uint16_t rec      = (uint16_t)(URC_HDR + body_len);
 
-    if (pos >= resp_len || resp[pos] == '\r' || resp[pos] == '\n')
-        return AT_ERR_NOT_FOUND;
-
-    /* 遍历参数 */
-    current  = 0;
-    in_quote = 0;
-    start    = pos;
-
-    for (; pos < resp_len; pos++) {
-        char c = resp[pos];
-
-        if (c == '"') {
-            in_quote = !in_quote;
+        if (rt->cfg.urc_buf[off] != urc_index) {
+            off = (uint16_t)(off + rec);     /* 非目标记录：原位保留 */
             continue;
         }
 
-        if (c == '\r' || c == '\n' || c == '\0')
-            break;
-
-        if (c == ',' && !in_quote) {
-            if (current == index) {
-                end = pos;
-                goto do_extract;
-            }
-            current++;
-            start = pos + 1;
-            while (start < resp_len && resp[start] == ' ')
-                start++;
-            pos = start - 1;
+        if (body_len >= room) {              /* 留不出结尾 '\0'：整条丢弃 */
+            status = AT_ERR_BUF_FULL;
+        } else {
+            memcpy(buf, rt->cfg.urc_buf + off + URC_HDR, body_len);
+            buf[body_len] = '\0';
+            *size  = body_len;
+            status = AT_OK;
         }
+
+        /* 摘除命中记录（其后内容前移） */
+        rt->urc_len = (uint16_t)(rt->urc_len - rec);
+        memmove(rt->cfg.urc_buf + off, rt->cfg.urc_buf + off + rec,
+                (size_t)(rt->urc_len - off));
+        break;
     }
 
-    /* 最后一个参数（到行尾） */
-    if (current == index && start < pos) {
-        end = pos;
-        goto do_extract;
-    }
-
-    return AT_ERR_NOT_FOUND;
-
-do_extract:
-    /* trim 首尾空格 */
-    while (end > start && resp[end - 1] == ' ')
-        end--;
-    while (start < end && resp[start] == ' ')
-        start++;
-
-    param_len = end - start;
-    if (param_len >= out_size)
-        return AT_ERR_PARAM;
-
-    memcpy(out_buf, resp + start, param_len);
-    out_buf[param_len] = '\0';
-    return (int16_t)param_len;
+    at_port_unlock(channel);
+    return status;
 }
 
-/* ════════════════════════════════════════════════════════════════
- *  缓冲区管理
- * ════════════════════════════════════════════════════════════════ */
+/* 提取第 N 个逗号分隔参数（0-based，双引号内的逗号不作分隔） */
+int16_t at_resp_param_get(const at_resp_t *resp, const char *line_key,
+                          uint8_t index, char *out_buf, uint16_t out_size)
+{
+    const char *data;
+    uint16_t    resp_len;
+    uint16_t    pos;
+    uint8_t     current  = 0u;
+    uint8_t     in_quote = 0u;
 
-/* 获取接收缓冲区及有效数据长度 */
+    if (resp == NULL || resp->buf == NULL || resp->len == 0 ||
+        out_buf == NULL || out_size == 0)
+        return AT_ERR_PARAM;
+
+    data     = (const char *)resp->buf;
+    resp_len = resp->len;
+
+    if (line_key != NULL) {                  /* 先定位关键字所在行 */
+        const char *p = at_buf_strstr(resp->buf, resp_len, line_key);
+
+        if (p == NULL)
+            return AT_ERR_NOT_FOUND;
+        data     = p;
+        resp_len = (uint16_t)(resp->len - (uint16_t)(p - (const char *)resp->buf));
+    }
+
+    /* 参数区在第一个冒号之后 */
+    for (pos = 0u; pos < resp_len && data[pos] != ':'; pos++)
+        ;
+    if (pos >= resp_len)
+        return AT_ERR_NOT_FOUND;
+
+    pos++;                                   /* 跳过冒号与前导空格 */
+    while (pos < resp_len && data[pos] == ' ')
+        pos++;
+
+    for (;;) {
+        uint16_t start = pos;
+        uint16_t end;
+        uint16_t param_len;
+
+        while (pos < resp_len) {             /* 定界到下一个引号外逗号或行尾 */
+            char c = data[pos];
+
+            if (c == '"') {
+                in_quote = (uint8_t)!in_quote;
+                pos++;
+                continue;
+            }
+            if ((c == ',' && !in_quote) || c == '\r' || c == '\n' || c == '\0')
+                break;
+            pos++;
+        }
+
+        if (current == index) {
+            end = pos;
+            while (end > start && data[end - 1u] == ' ')
+                end--;                       /* 去掉尾部空格 */
+
+            param_len = (uint16_t)(end - start);
+            if (param_len == 0u)
+                return AT_ERR_NOT_FOUND;     /* 空参数 */
+            if (param_len >= out_size)
+                return AT_ERR_PARAM;
+
+            memcpy(out_buf, data + start, param_len);
+            out_buf[param_len] = '\0';
+            return (int16_t)param_len;
+        }
+
+        if (pos >= resp_len || data[pos] != ',')
+            return AT_ERR_NOT_FOUND;         /* 参数不足 */
+
+        current++;
+        pos++;                               /* 跳过逗号 */
+        while (pos < resp_len && data[pos] == ' ')
+            pos++;
+    }
+}
+
+/* ==================== 缓冲区管理 ==================== */
+
+/* 取 cmd 缓存的只读视图 */
 at_status_t at_recv_get(uint8_t channel, uint8_t **buf, uint16_t *len)
 {
-    at_channel_t *ch = &s_at_channels[channel];
+    AT_CH_GET(channel);
 
-    if (ch->recv_buf == NULL)
+    if (rt->cfg.recv_buf == NULL)
         return AT_ERR_NO_BUFFER;
 
-    if (buf) *buf = ch->recv_buf;
-    if (len) *len = ch->rx_len;
+    if (buf)
+        *buf = rt->cfg.recv_buf;
+    if (len)
+        *len = rt->rx_len;
+
     return AT_OK;
 }
 
-/* 重置接收缓冲区及长度 */
-at_status_t at_recv_reset(uint8_t channel)
-{
-    at_channel_t *ch = &s_at_channels[channel];
-
-    if (ch->recv_buf == NULL)
-        return AT_ERR_NO_BUFFER;
-
-    memset(ch->recv_buf, 0, ch->recv_size);
-    ch->rx_len = 0;
-    return AT_OK;
-}
-
-/* 从接收缓冲区指定位置移除字节（后续数据前移填补空洞） */
-at_status_t at_recv_remove(uint8_t channel, uint16_t offset, uint16_t bytes)
-{
-    at_channel_t *ch = &s_at_channels[channel];
-
-    if (ch->recv_buf == NULL)
-        return AT_ERR_NO_BUFFER;
-    if (bytes == 0)
-        return AT_OK;
-    if (offset + bytes > ch->rx_len)
-        return AT_ERR_PARAM;
-
-    uint16_t tail = ch->rx_len - offset - bytes;
-    if (tail > 0)
-        memmove(ch->recv_buf + offset, ch->recv_buf + offset + bytes, tail);
-    ch->rx_len -= bytes;
-    /* 清除尾部残留 */
-    memset(ch->recv_buf + ch->rx_len, 0, bytes);
-    return AT_OK;
-}
-
-/* 临时替换接收缓冲区（供 OTA 等大数据场景复用内存） */
+/* 临时替换接收缓冲区 */
 void at_recv_buf_swap(uint8_t channel, uint8_t **buf_p, uint16_t *size_p,
-                       uint16_t *len_p)
+                      uint16_t *len_p)
 {
+    uint8_t  *tmp_buf;
+    uint16_t  tmp_size;
+    uint16_t  tmp_len;
+
     if (channel >= AT_CHANNEL_MAX || buf_p == NULL || size_p == NULL || len_p == NULL)
         return;
 
-    at_channel_t *ch = &s_at_channels[channel];
-    uint8_t  *tmp_buf  = ch->recv_buf;
-    uint16_t  tmp_size = ch->recv_size;
-    uint16_t  tmp_len  = ch->rx_len;
+    at_rt_t *rt = &s_rt[channel];
 
-    ch->recv_buf  = *buf_p;
-    ch->recv_size = *size_p;
-    ch->rx_len    = *len_p;
+    if (rt->rx_len > 0u)
+        AT_LOG_W("[AT:%d] swap with %u unconsumed byte(s)",
+                 channel, (unsigned)rt->rx_len);
+
+    tmp_buf  = rt->cfg.recv_buf;
+    tmp_size = rt->cfg.recv_size;
+    tmp_len  = rt->rx_len;
+
+    rt->cfg.recv_buf  = *buf_p;
+    rt->cfg.recv_size = *size_p;
+    rt->rx_len        = 0;                   /* 游标复位 */
+    rt->overflow      = 0u;
+    rt->scan          = 0;
 
     *buf_p  = tmp_buf;
     *size_p = tmp_size;

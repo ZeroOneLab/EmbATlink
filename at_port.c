@@ -1,7 +1,7 @@
 /**
  * @file    at_port.c
- * @version v2.2
- * @date    2026-08-09
+ * @version v3.0
+ * @date    2026-10-08
  * @author  ZeroOneLab
  * @website https://github.com/ZeroOneLab/EmbATlink.git
  *
@@ -61,52 +61,18 @@ uint32_t at_port_get_tick_ms(void)
 
 /* ── 数据收发 ── */
 
-/* 通过通道发送数据 */
-void at_port_send(uint8_t channel, const char *buf, uint16_t len)
+/* 通过通道发送数据（成功返回 0，失败返回非 0） */
+int at_port_send(uint8_t channel, const void *buf, uint16_t len)
 {
     switch (channel)
     {
     case 0:
-        break;
+        return 0;
     case 1:
-        break;
+        return -1;
     default:
-        break;
+        return -1;
     }
-}
-
-/* 发送 AT 命令行尾符 —— 按通道可定制 */
-void at_port_send_line_ending(uint8_t channel)
-{
-    switch (channel)
-    {
-    case 0:
-        break;
-    case 1:
-        break;
-    default:
-        break;
-    }
-}
-
-/* 检测 AT 响应行是否接收完成（\r\n 结尾或 > 提示符） */
-uint8_t at_port_recv_done(uint8_t channel, const char *buf, uint16_t len)
-{
-    switch (channel)
-    {
-    case 0:
-		if (len >= 1U && buf[len - 1] == '>')
-            return 1;
-        if (len >= 2U && buf[len - 1] == '\n' && buf[len - 2] == '\r')
-            return 1;
-        break;
-    case 1:
-        break;
-    default:
-        break;
-    }
-
-    return 0;
 }
 
 /* ── 同步 ── */
